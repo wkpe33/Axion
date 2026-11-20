@@ -235,6 +235,11 @@ MACRO_CONFIG_STR(TcTranslateKey, tc_translate_key, 256, "", CFGFLAG_CLIENT | CFG
 MACRO_CONFIG_INT(TcTranslateAuto, tc_translate_auto, 1, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Automatically translate incoming messages")
 MACRO_CONFIG_INT(TcTranslateOutgoing, tc_translate_outgoing, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Translate your own outgoing chat messages into another language before sending them")
 MACRO_CONFIG_STR(TcTranslateOutgoingTarget, tc_translate_outgoing_target, 16, "en", CFGFLAG_CLIENT | CFGFLAG_SAVE, "Language to translate your outgoing messages into (must be 2 character ISO 639 code)")
+MACRO_CONFIG_STR(AxTranslateIncomingSource, ax_translate_incoming_source, 16, "auto", CFGFLAG_CLIENT | CFGFLAG_SAVE, "Source language for incoming chat translation")
+MACRO_CONFIG_STR(AxTranslateIncomingIgnoreLanguages, ax_translate_incoming_ignore_languages, 128, "", CFGFLAG_CLIENT | CFGFLAG_SAVE, "Languages excluded from automatic chat translation")
+MACRO_CONFIG_STR(AxTranslateOutgoingSource, ax_translate_outgoing_source, 16, "auto", CFGFLAG_CLIENT | CFGFLAG_SAVE, "Source language for outgoing chat translation")
+MACRO_CONFIG_INT(AxTranslateOutgoingStripPunctuation, ax_translate_outgoing_strip_punctuation, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Strip apostrophes from translated outgoing messages")
+MACRO_CONFIG_INT(AxTranslateMessageButton, ax_translate_message_button, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Show a translate button beside chat messages")
 
 // Animations
 MACRO_CONFIG_INT(TcAnimateWheelTime, tc_animate_wheel_time, 80, 0, 1000, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Duration of emote and bind wheel animations, in milliseconds (0 == no animation, 1000 = 1 second)")

@@ -52,12 +52,14 @@ public:
 	void OnStateChange(int OldState, int NewState) override;
 	void OnNewSnapshot() override;
 	void SetForcedAspect();
+	void UpdateCustomAspect();
 
 	std::shared_ptr<IHttpRequest> m_pTClientInfoTask = nullptr;
 	void FetchTClientInfo();
 	void FinishTClientInfo();
 	void ResetTClientInfoTask();
 	bool NeedUpdate();
+	static constexpr const char *AXION_UPDATE_VERSION = "1.6.0";
 
 	void RenderMiniVoteHud();
 	void RenderCenterLines();

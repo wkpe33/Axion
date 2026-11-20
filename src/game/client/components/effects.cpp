@@ -16,6 +16,15 @@
 #include <game/client/components/sounds.h>
 #include <game/client/gameclient.h>
 
+bool CEffects::Enabled(AxionPresentation::EEffect Effect) const
+{
+ return AxionPresentation::EffectEnabled(Effect, GameClient()->m_aLocalIds[0], Client()->DummyConnected() ? GameClient()->m_aLocalIds[1] : -1);
+}
+void CEffects::FreezeStar(vec2 Pos, vec2 Dir, float Alpha)
+{
+ if(Enabled(AxionPresentation::EEffect::FreezeStars)) GameClient()->m_DamageInd.Create(Pos, Dir, Alpha);
+}
+
 CEffects::CEffects()
 {
 	m_Add5hz = false;
@@ -25,6 +34,12 @@ CEffects::CEffects()
 
 void CEffects::AirJump(vec2 Pos, float Alpha, float Volume)
 {
+	if(g_Config.m_SndGame)
+		GameClient()->m_Sounds.PlayAt(CSounds::CHN_WORLD, SOUND_PLAYER_AIRJUMP, Volume, Pos);
+	if(!Enabled(AxionPresentation::EEffect::AirJump))
+		return;
+
+
 	CParticle p;
 	p.SetDefault();
 	p.m_Spr = SPRITE_PART_AIRJUMP;
@@ -45,17 +60,22 @@ void CEffects::AirJump(vec2 Pos, float Alpha, float Volume)
 	p.m_Pos = Pos + vec2(6.0f, 16.0f);
 	GameClient()->m_Particles.Add(CParticles::GROUP_GENERAL, &p);
 
-	if(g_Config.m_SndGame)
-		GameClient()->m_Sounds.PlayAt(CSounds::CHN_WORLD, SOUND_PLAYER_AIRJUMP, Volume, Pos);
+
 }
 
 void CEffects::DamageIndicator(vec2 Pos, vec2 Dir, float Alpha)
 {
+	if(!Enabled(AxionPresentation::EEffect::Damage))
+		return;
+
 	GameClient()->m_DamageInd.Create(Pos, Dir, Alpha);
 }
 
 void CEffects::PowerupShine(vec2 Pos, vec2 Size, float Alpha)
 {
+	if(!Enabled(AxionPresentation::EEffect::Shine))
+		return;
+
 	if(!m_Add50hz)
 		return;
 
@@ -79,6 +99,9 @@ void CEffects::PowerupShine(vec2 Pos, vec2 Size, float Alpha)
 
 void CEffects::FreezingFlakes(vec2 Pos, vec2 Size, float Alpha)
 {
+	if(!Enabled(AxionPresentation::EEffect::Frozen))
+		return;
+
 	if(!m_Add5hz)
 		return;
 
@@ -106,6 +129,9 @@ void CEffects::FreezingFlakes(vec2 Pos, vec2 Size, float Alpha)
 
 void CEffects::SparkleTrail(vec2 Pos, float Alpha)
 {
+	if(!Enabled(AxionPresentation::EEffect::Sparkle))
+		return;
+
 	if(!m_Add50hz)
 		return;
 
@@ -126,6 +152,9 @@ void CEffects::SparkleTrail(vec2 Pos, float Alpha)
 
 void CEffects::SmokeTrail(vec2 Pos, vec2 Vel, float Alpha, float TimePassed)
 {
+	if(!Enabled(AxionPresentation::EEffect::SmokeTrail))
+		return;
+
 	if(!m_Add50hz && TimePassed < 0.001f)
 		return;
 
@@ -146,6 +175,19 @@ void CEffects::SmokeTrail(vec2 Pos, vec2 Vel, float Alpha, float TimePassed)
 
 void CEffects::SkidTrail(vec2 Pos, vec2 Vel, int Direction, float Alpha, float Volume)
 {
+	if(g_Config.m_SndGame)
+	{
+		int64_t Now = time();
+		if(Now - m_SkidSoundTimer > time_freq() / 10)
+		{
+			m_SkidSoundTimer = Now;
+			GameClient()->m_Sounds.PlayAt(CSounds::CHN_WORLD, SOUND_PLAYER_SKID, Volume, Pos);
+		}
+	}
+
+	if(!Enabled(AxionPresentation::EEffect::Skid))
+		return;
+
 	if(m_Add100hz)
 	{
 		CParticle p;
@@ -162,19 +204,14 @@ void CEffects::SkidTrail(vec2 Pos, vec2 Vel, int Direction, float Alpha, float V
 		p.m_StartAlpha = Alpha;
 		GameClient()->m_Particles.Add(CParticles::GROUP_GENERAL, &p);
 	}
-	if(g_Config.m_SndGame)
-	{
-		int64_t Now = time();
-		if(Now - m_SkidSoundTimer > time_freq() / 10)
-		{
-			m_SkidSoundTimer = Now;
-			GameClient()->m_Sounds.PlayAt(CSounds::CHN_WORLD, SOUND_PLAYER_SKID, Volume, Pos);
-		}
-	}
+
 }
 
 void CEffects::BulletTrail(vec2 Pos, float Alpha, float TimePassed)
 {
+	if(!Enabled(AxionPresentation::EEffect::BulletTrail))
+		return;
+
 	if(!m_Add100hz && TimePassed < 0.001f)
 		return;
 
@@ -193,6 +230,12 @@ void CEffects::BulletTrail(vec2 Pos, float Alpha, float TimePassed)
 
 void CEffects::PlayerSpawn(vec2 Pos, float Alpha, float Volume)
 {
+	if(g_Config.m_SndGame)
+		GameClient()->m_Sounds.PlayAt(CSounds::CHN_WORLD, SOUND_PLAYER_SPAWN, Volume, Pos);
+	if(!Enabled(AxionPresentation::EEffect::Spawn))
+		return;
+
+
 	for(int i = 0; i < 32; i++)
 	{
 		CParticle p;
@@ -211,12 +254,15 @@ void CEffects::PlayerSpawn(vec2 Pos, float Alpha, float Volume)
 		p.m_StartAlpha = Alpha;
 		GameClient()->m_Particles.Add(CParticles::GROUP_GENERAL, &p);
 	}
-	if(g_Config.m_SndGame)
-		GameClient()->m_Sounds.PlayAt(CSounds::CHN_WORLD, SOUND_PLAYER_SPAWN, Volume, Pos);
+
 }
 
 void CEffects::PlayerDeath(vec2 Pos, int ClientId, float Alpha)
 {
+	AxionPresentation::COwnerScope Owner(ClientId);
+	if(!Enabled(AxionPresentation::EEffect::Death))
+		return;
+
 	ColorRGBA BloodColor(1.0f, 1.0f, 1.0f);
 
 	if(ClientId >= 0)
@@ -273,6 +319,9 @@ void CEffects::PlayerDeath(vec2 Pos, int ClientId, float Alpha)
 
 void CEffects::Confetti(vec2 Pos, float Alpha)
 {
+	if(!Enabled(AxionPresentation::EEffect::Confetti))
+		return;
+
 	ColorRGBA Red(1.0f, 0.4f, 0.4f);
 	ColorRGBA Green(0.4f, 1.0f, 0.4f);
 	ColorRGBA Blue(0.4f, 0.4f, 1.0f);
@@ -327,6 +376,9 @@ void CEffects::Confetti(vec2 Pos, float Alpha)
 
 void CEffects::Explosion(vec2 Pos, float Alpha)
 {
+	if(!Enabled(AxionPresentation::EEffect::Explosion))
+		return;
+
 	// add to flow
 	for(int y = -8; y <= 8; y++)
 		for(int x = -8; x <= 8; x++)
@@ -393,6 +445,12 @@ void CEffects::Explosion(vec2 Pos, float Alpha)
 
 void CEffects::HammerHit(vec2 Pos, float Alpha, float Volume)
 {
+	if(g_Config.m_SndGame)
+		GameClient()->m_Sounds.PlayAt(CSounds::CHN_WORLD, SOUND_HAMMER_HIT, Volume, Pos);
+	if(!Enabled(AxionPresentation::EEffect::HammerHit))
+		return;
+
+
 	// add the explosion
 	CParticle p;
 	p.SetDefault();
@@ -405,8 +463,7 @@ void CEffects::HammerHit(vec2 Pos, float Alpha, float Volume)
 	p.m_Color.a = Alpha;
 	p.m_StartAlpha = Alpha;
 	GameClient()->m_Particles.Add(CParticles::GROUP_EXPLOSIONS, &p);
-	if(g_Config.m_SndGame)
-		GameClient()->m_Sounds.PlayAt(CSounds::CHN_WORLD, SOUND_HAMMER_HIT, Volume, Pos);
+
 }
 
 void CEffects::OnRender()

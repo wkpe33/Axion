@@ -5,6 +5,8 @@
 
 #include <base/mem.h>
 #include <base/time.h>
+#include <base/str.h>
+#include <engine/storage.h>
 
 #include <engine/engine.h>
 #include <engine/shared/config.h>
@@ -22,6 +24,7 @@ CSoundLoading::CSoundLoading(CGameClient *pGameClient, bool Render) :
 	m_Render(Render)
 {
 	Abortable(true);
+	str_copy(m_aPack, g_Config.m_SndPack);
 }
 
 void CSoundLoading::Run()
@@ -36,7 +39,31 @@ void CSoundLoading::Run()
 			if(State() == IJob::STATE_ABORTED)
 				return;
 
-			int Id = m_pGameClient->Sound()->LoadWV(g_pData->m_aSounds[s].m_aSounds[i].m_pFilename);
+			const char *pFilename = g_pData->m_aSounds[s].m_aSounds[i].m_pFilename;
+			const char *pSuffix = str_startswith(pFilename, "audio/");
+			if(!pSuffix)
+				pSuffix = pFilename;
+			char aPath[512];
+			const char *pSelected = pFilename;
+			if(str_comp(m_aPack, ".") != 0 && str_comp(m_aPack, "..") != 0 && !str_find(m_aPack, "/") && !str_find(m_aPack, "\\"))
+			{
+				for(const char *pBase : {"assets/audio", "audio"})
+				{
+					str_format(aPath, sizeof(aPath), "%s/%s/%s", pBase, m_aPack, pSuffix);
+					if(m_pGameClient->Storage()->FileExists(aPath, IStorage::TYPE_ALL))
+					{
+						pSelected = aPath;
+						break;
+					}
+					str_format(aPath, sizeof(aPath), "%s/%s/%s", pBase, m_aPack, pFilename);
+					if(m_pGameClient->Storage()->FileExists(aPath, IStorage::TYPE_ALL))
+					{
+						pSelected = aPath;
+						break;
+					}
+				}
+			}
+			int Id = m_pGameClient->Sound()->LoadWV(pSelected);
 			g_pData->m_aSounds[s].m_aSounds[i].m_Id = Id;
 			// try to render a frame
 			if(m_Render)
@@ -104,6 +131,7 @@ int CSounds::GetSampleId(int SetId)
 
 void CSounds::OnInit()
 {
+	str_copy(m_aLoadedPack, g_Config.m_SndPack);
 	UpdateChannels();
 	ClearQueue();
 
@@ -148,6 +176,25 @@ void CSounds::OnRender()
 			return;
 	}
 
+	if(str_comp(m_aLoadedPack, g_Config.m_SndPack) != 0)
+	{
+		Sound()->StopAll();
+		ClearQueue();
+		for(int Set = 0; Set < g_pData->m_NumSounds; ++Set)
+			for(int Sample = 0; Sample < g_pData->m_aSounds[Set].m_NumSounds; ++Sample)
+			{
+				int &Id = g_pData->m_aSounds[Set].m_aSounds[Sample].m_Id;
+				if(Id >= 0)
+					Sound()->UnloadSample(Id);
+				Id = -1;
+			}
+		str_copy(m_aLoadedPack, g_Config.m_SndPack);
+		m_pSoundJob = std::make_shared<CSoundLoading>(GameClient(), false);
+		GameClient()->Engine()->AddJob(m_pSoundJob);
+		m_WaitForSoundJob = true;
+		return;
+	}
+
 	Sound()->SetListenerPosition(GameClient()->m_Camera.m_Center);
 	UpdateChannels();
 
@@ -157,6 +204,7 @@ void CSounds::OnRender()
 		int64_t Now = time();
 		if(m_QueueWaitTime <= Now)
 		{
+			AxionPresentation::COwnerScope Owner(m_aQueue[0].m_Owner);
 			Play(m_aQueue[0].m_Channel, m_aQueue[0].m_SetId, 1.0f);
 			m_QueueWaitTime = Now + time_freq() * 3 / 10; // wait 300ms before playing the next one
 			if(--m_QueuePos > 0)
@@ -182,6 +230,7 @@ void CSounds::Enqueue(int Channel, int SetId)
 		return;
 
 	m_aQueue[m_QueuePos].m_Channel = Channel;
+	m_aQueue[m_QueuePos].m_Owner = AxionPresentation::s_Owner;
 	m_aQueue[m_QueuePos++].m_SetId = SetId;
 }
 
@@ -197,13 +246,25 @@ void CSounds::PlayAndRecord(int Channel, int SetId, float Volume, vec2 Position)
 	PlayAt(Channel, SetId, Volume, Position);
 }
 
-void CSounds::Play(int Channel, int SetId, float Volume)
+void CSounds::Play(int Channel, int SetId, float Volume, int Flags)
 {
-	PlaySample(Channel, GetSampleId(SetId), 0, Volume);
+	if((Channel == CHN_WORLD || Channel == CHN_GLOBAL) &&
+		!AxionPresentation::SoundEnabled(SetId, GameClient()->m_aLocalIds[0], Client()->DummyConnected() ? GameClient()->m_aLocalIds[1] : -1))
+		return;
+
+	if(SetId == SOUND_GUN_FIRE)
+		Volume *= g_Config.m_AxGunVolume / 100.0f;
+	PlaySample(Channel, GetSampleId(SetId), Flags, Volume);
 }
 
 void CSounds::PlayAt(int Channel, int SetId, float Volume, vec2 Position)
 {
+	if((Channel == CHN_WORLD || Channel == CHN_GLOBAL) &&
+		!AxionPresentation::SoundEnabled(SetId, GameClient()->m_aLocalIds[0], Client()->DummyConnected() ? GameClient()->m_aLocalIds[1] : -1))
+		return;
+
+	if(SetId == SOUND_GUN_FIRE)
+		Volume *= g_Config.m_AxGunVolume / 100.0f;
 	PlaySampleAt(Channel, GetSampleId(SetId), 0, Volume, Position);
 }
 

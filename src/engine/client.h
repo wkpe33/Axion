@@ -38,6 +38,8 @@ enum
 typedef bool (*CLIENTFUNC_FILTER)(const void *pData, int DataSize, void *pUser);
 struct CChecksumData;
 
+class CUdpPortTest;
+
 class IClient : public IInterface
 {
 	MACRO_INTERFACE("client")
@@ -213,6 +215,8 @@ public:
 	float FrameTimeAverage() const { return m_FrameTimeAverage; }
 
 	// actions
+	virtual CUdpPortTest &UdpPortTest() = 0;
+	virtual bool StartUdpPortTest(const NETADDR &Server, const char *pPorts) = 0;
 	virtual void Connect(const char *pAddress, const char *pPassword = nullptr) = 0;
 	virtual void Disconnect() = 0;
 

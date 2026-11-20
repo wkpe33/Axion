@@ -1,3 +1,4 @@
+#include <game/client/components/axion_hud_layout.h>
 #include "statusbar.h"
 
 #include <base/time.h>
@@ -300,7 +301,7 @@ void CStatusBar::OnRender()
 	if(Client()->State() != IClient::STATE_ONLINE && Client()->State() != IClient::STATE_DEMOPLAYBACK)
 		return;
 
-	if(!g_Config.m_TcStatusBar || !GameClient()->m_Snap.m_pGameInfoObj)
+	if(g_Config.m_AxNewHud || !g_Config.m_TcStatusBar || !GameClient()->m_Snap.m_pGameInfoObj)
 		return;
 
 	m_PlayerId = GameClient()->m_Snap.m_LocalClientId;
@@ -310,6 +311,8 @@ void CStatusBar::OnRender()
 	UpdateStatusBarSize();
 
 	Graphics()->MapScreen({0.0f, 0.0f, m_Width, m_Height});
+	AxionHud::CScope Layout(Graphics(), AxionHud::STATUS);
+	AxionHud::Record(AxionHud::STATUS, {m_BarX, m_BarY, m_Width, m_BarHeight}, m_Width, m_Height);
 	Graphics()->DrawRect(m_BarX, m_BarY, m_Width, m_BarHeight, color_cast<ColorRGBA>(ColorHSLA(g_Config.m_TcStatusBarColor)).WithAlpha(g_Config.m_TcStatusBarAlpha / 100.0f), 0, 0);
 	TextRender()->TextColor(color_cast<ColorRGBA>(ColorHSLA(g_Config.m_TcStatusBarTextColor)).WithAlpha(g_Config.m_TcStatusBarTextAlpha / 100.0f));
 

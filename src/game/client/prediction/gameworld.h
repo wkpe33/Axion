@@ -9,6 +9,7 @@
 #include <list>
 #include <vector>
 
+class CAxionMovingTilePrediction;
 class CCollision;
 class CCharacter;
 class CEntity;
@@ -63,7 +64,7 @@ public:
 	CTeamsCore *Teams() { return &m_Teams; }
 	std::vector<SSwitchers> &Switchers() { return m_Core.m_vSwitchers; }
 	CEntity *GetEntity(int Id, int EntityType);
-	CCharacter *GetCharacterById(int Id) { return (Id >= 0 && Id < MAX_CLIENTS) ? m_apCharacters[Id] : nullptr; }
+	CCharacter *GetCharacterById(int Id) const { return (Id >= 0 && Id < MAX_CLIENTS) ? m_apCharacters[Id] : nullptr; }
 
 	// from gamecontext
 	void CreateExplosion(vec2 Pos, int Owner, int Weapon, bool NoDamage, int ActivatedTeam, CClientMask Mask, int Id = -1);
@@ -91,6 +92,7 @@ public:
 	CGameWorld *m_pParent;
 	CGameWorld *m_pChild;
 
+	CAxionMovingTilePrediction *m_pAxionMovingTilePrediction = nullptr;
 	int m_LocalClientId;
 
 	bool IsLocalTeam(int OwnerId) const;
@@ -123,6 +125,7 @@ public:
 		int m_Tick;
 
 		int m_ExtraInfo;
+		int m_PresentationOwner = -1; // Render/audio metadata only; not an event identity or physics input.
 		bool m_Handled = false;
 
 		CPredictedEvent(int EventId, vec2 Pos, int Id, int Tick, int ExtraInfo = -1) :
@@ -137,10 +140,10 @@ public:
 	bool CheckPredictedEventHandled(const CPredictedEvent &CheckEvent);
 	void PlayPredictedEvents(int Tick);
 
-	void CreatePredictedSound(vec2 Pos, int SoundId, int Id = -1);
-	void CreatePredictedExplosionEvent(vec2 Pos, int Id = -1);
-	void CreatePredictedHammerHitEvent(vec2 Pos, int Id = -1);
-	void CreatePredictedDamageIndEvent(vec2 Pos, float Angle, int Amount, int Id = -1);
+	void CreatePredictedSound(vec2 Pos, int SoundId, int Id = -1, int PresentationOwner = -1);
+	void CreatePredictedExplosionEvent(vec2 Pos, int Id = -1, int PresentationOwner = -1);
+	void CreatePredictedHammerHitEvent(vec2 Pos, int Id = -1, int PresentationOwner = -1);
+	void CreatePredictedDamageIndEvent(vec2 Pos, float Angle, int Amount, int Id = -1, int PresentationOwner = -1);
 
 private:
 	void RemoveEntities();

@@ -6,6 +6,7 @@
 #include <base/vmath.h>
 
 #include <game/client/component.h>
+#include "axion_presentation.h"
 
 class CEffects : public CComponent
 {
@@ -26,6 +27,8 @@ public:
 	int Sizeof() const override { return sizeof(*this); }
 
 	void OnRender() override;
+	bool Enabled(AxionPresentation::EEffect Effect) const;
+	void FreezeStar(vec2 Pos, vec2 Dir, float Alpha);
 
 	void BulletTrail(vec2 Pos, float Alpha, float TimePassed);
 	void SmokeTrail(vec2 Pos, vec2 Vel, float Alpha, float TimePassed);

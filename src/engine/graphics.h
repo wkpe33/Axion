@@ -277,7 +277,9 @@ public:
 	int ScreenWidth() const { return m_ScreenWidth; }
 	int ScreenHeight() const { return m_ScreenHeight; }
 	vec2 ScreenSize() const { return vec2(m_ScreenWidth, m_ScreenHeight); }
-	float ScreenAspect() const { return (float)ScreenWidth() / (float)ScreenHeight(); }
+	float ScreenAspect() const { return m_CustomScreenAspect > 0.0f ? m_CustomScreenAspect : (float)ScreenWidth() / (float)ScreenHeight(); }
+	void SetCustomScreenAspect(float Aspect) { m_CustomScreenAspect = Aspect; }
+	float m_CustomScreenAspect = 0.0f;
 	float ScreenHiDPIScale() const { return m_ScreenHiDPIScale; }
 	int WindowWidth() const { return m_ScreenWidth / m_ScreenHiDPIScale; }
 	int WindowHeight() const { return m_ScreenHeight / m_ScreenHiDPIScale; }
@@ -503,6 +505,7 @@ public:
 	virtual void RenderQuadContainerAsSpriteMultiple(int ContainerIndex, int QuadOffset, int DrawCount, SRenderSpriteInfo *pRenderInfo) = 0;
 
 	virtual void QuadsDrawFreeform(const CFreeformItem *pArray, int Num) = 0;
+	virtual void QuadsTex3DDrawFreeform(const CFreeformItem *pArray, int Num) = 0;
 	virtual void QuadsText(float x, float y, float Size, const char *pText) = 0;
 
 	// sprites

@@ -14,6 +14,7 @@ class CSoundLoading : public IJob
 {
 	CGameClient *m_pGameClient;
 	bool m_Render;
+	char m_aPack[64];
 
 public:
 	CSoundLoading(CGameClient *pGameClient, bool Render);
@@ -31,12 +32,14 @@ class CSounds : public CComponent
 	public:
 		int m_Channel;
 		int m_SetId;
+		int m_Owner;
 	};
 	CQueueEntry m_aQueue[QUEUE_SIZE];
 	int m_QueuePos;
 	int64_t m_QueueWaitTime;
 	std::shared_ptr<CSoundLoading> m_pSoundJob;
 	bool m_WaitForSoundJob;
+	char m_aLoadedPack[64]{};
 
 	void UpdateChannels();
 	int GetSampleId(int SetId);
@@ -65,7 +68,7 @@ public:
 
 	void ClearQueue();
 	void Enqueue(int Channel, int SetId);
-	void Play(int Channel, int SetId, float Volume);
+	void Play(int Channel, int SetId, float Volume, int Flags = 0);
 	void PlayAt(int Channel, int SetId, float Volume, vec2 Position);
 	void PlayAndRecord(int Channel, int SetId, float Volume, vec2 Position);
 	void Stop(int SetId);

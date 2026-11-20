@@ -24,6 +24,7 @@ class CItems : public CComponent
 	int m_ItemsQuadContainerIndex;
 
 public:
+	void RenderLaserData(const CLaserData *pData) { RenderLaser(pData); }
 	int Sizeof() const override { return sizeof(*this); }
 	void OnRender() override;
 	void OnInit() override;

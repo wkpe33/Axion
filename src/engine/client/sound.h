@@ -89,6 +89,7 @@ class CSound : public IEngineSound
 	std::atomic<float> m_ListenerPositionX = 0.0f;
 	std::atomic<float> m_ListenerPositionY = 0.0f;
 	std::atomic<int> m_SoundVolume = 100;
+	std::atomic<bool> m_MuteInactive = false;
 	int m_MixingRate = 48000;
 
 	class IEngineGraphics *m_pGraphics = nullptr;

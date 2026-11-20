@@ -7,6 +7,7 @@
 #include <base/time.h>
 #include <base/vmath.h>
 
+#include <engine/shared/axion_input.h>
 #include <engine/client.h>
 #include <engine/shared/config.h>
 
@@ -70,6 +71,8 @@ struct CInputState
 void CControls::ConKeyInputState(IConsole::IResult *pResult, void *pUserData)
 {
 	CInputState *pState = (CInputState *)pUserData;
+	if(pState->m_pControls->GameClient()->m_Spectator.GhostSpectating())
+		return;
 
 	if(pState->m_pControls->GameClient()->m_GameInfo.m_BugDDRaceInput && pState->m_pControls->GameClient()->m_Snap.m_SpecInfo.m_Active)
 		return;
@@ -80,6 +83,8 @@ void CControls::ConKeyInputState(IConsole::IResult *pResult, void *pUserData)
 void CControls::ConKeyInputCounter(IConsole::IResult *pResult, void *pUserData)
 {
 	CInputState *pState = (CInputState *)pUserData;
+	if(pState->m_pControls->GameClient()->m_Spectator.GhostSpectating())
+		return;
 
 	if((pState->m_pControls->GameClient()->m_GameInfo.m_BugDDRaceInput && pState->m_pControls->GameClient()->m_Snap.m_SpecInfo.m_Active) || pState->m_pControls->GameClient()->m_Spectator.IsActive())
 		return;
@@ -100,7 +105,7 @@ struct CInputSet
 void CControls::ConKeyInputSet(IConsole::IResult *pResult, void *pUserData)
 {
 	CInputSet *pSet = (CInputSet *)pUserData;
-	if(pResult->GetInteger(0))
+	if(pResult->GetInteger(0) && !pSet->m_pControls->GameClient()->m_Spectator.GhostSpectating())
 	{
 		*pSet->m_apVariables[g_Config.m_ClDummy] = pSet->m_Value;
 	}
@@ -186,10 +191,31 @@ void CControls::OnMessage(int Msg, void *pRawMsg)
 
 int CControls::SnapInput(int *pData)
 {
+	if(GameClient()->m_Spectator.GhostSpectating())
+	{
+		const int Connection = g_Config.m_ClDummy;
+		const auto Previous = m_aLastData[Connection];
+		ResetInput(Connection);
+		auto &Input = m_aInputData[Connection];
+		Input.m_Hook = 0;
+		Input.m_WantedWeapon = 0;
+		Input.m_PlayerFlags = GameClient()->m_Chat.IsActive() && !g_Config.m_BcSilentTyping ? PLAYERFLAG_CHATTING : PLAYERFLAG_PLAYING;
+		m_aLastData[Connection] = m_aFastInput[Connection] = Input;
+		m_FastInputHookAction = m_FastInputFireAction = false;
+
+		const auto Now = time_get();
+		if(!Previous.m_Direction && !Previous.m_Jump && !Previous.m_Hook && Previous.m_Fire == Input.m_Fire &&
+			Previous.m_PlayerFlags == Input.m_PlayerFlags && Now <= m_LastSendTime + time_freq() / 25)
+			return 0;
+		m_LastSendTime = Now;
+		mem_copy(pData, &Input, sizeof(Input));
+		return sizeof(Input);
+	}
+
 	// update player state
 	if(GameClient()->m_Chat.IsActive())
 		m_aInputData[g_Config.m_ClDummy].m_PlayerFlags = PLAYERFLAG_CHATTING;
-	else if(GameClient()->m_Menus.IsActive())
+	else if(GameClient()->m_Menus.IsActive() || GameClient()->m_AxionOverlay.Editing())
 		m_aInputData[g_Config.m_ClDummy].m_PlayerFlags = PLAYERFLAG_IN_MENU;
 	else
 		m_aInputData[g_Config.m_ClDummy].m_PlayerFlags = PLAYERFLAG_PLAYING;
@@ -217,7 +243,7 @@ int CControls::SnapInput(int *pData)
 	}
 
 	// TClient
-	if(g_Config.m_TcHideChatBubbles && Client()->RconAuthed())
+	if(g_Config.m_BcSilentTyping || (g_Config.m_TcHideChatBubbles && Client()->RconAuthed()))
 		for(auto &InputData : m_aInputData)
 			InputData.m_PlayerFlags &= ~PLAYERFLAG_CHATTING;
 
@@ -356,6 +382,7 @@ int CControls::SnapInput(int *pData)
 		Send = Send || (GameClient()->m_Snap.m_pLocalCharacter && GameClient()->m_Snap.m_pLocalCharacter->m_Weapon == WEAPON_NINJA && (m_aInputData[g_Config.m_ClDummy].m_Direction || m_aInputData[g_Config.m_ClDummy].m_Jump || m_aInputData[g_Config.m_ClDummy].m_Hook));
 	}
 
+
 	// copy and return size
 	m_aLastData[g_Config.m_ClDummy] = m_aInputData[g_Config.m_ClDummy];
 
@@ -415,6 +442,19 @@ void CControls::OnRender()
 
 bool CControls::OnCursorMove(float x, float y, IInput::ECursorType CursorType)
 {
+	if(g_Config.m_BcCustomAspectRatioCursorNative && Graphics()->m_CustomScreenAspect > 0.0f &&
+		CursorType == IInput::CURSOR_MOUSE)
+	{
+		float ForcedW, ForcedH, NativeW, NativeH;
+		Graphics()->CalcScreenParams(Graphics()->ScreenAspect(), 1.0f, &ForcedW, &ForcedH);
+		Graphics()->CalcScreenParams(static_cast<float>(Graphics()->ScreenWidth()) / Graphics()->ScreenHeight(), 1.0f, &NativeW, &NativeH);
+		if(NativeW > 0.0f && NativeH > 0.0f)
+		{
+			x *= ForcedW / NativeW;
+			y *= ForcedH / NativeH;
+		}
+	}
+
 	if(GameClient()->IsWorldPaused())
 		return false;
 
@@ -513,6 +553,8 @@ float CControls::GetMaxMouseDistance() const
 
 bool CControls::CheckNewInput()
 {
+	if(GameClient()->m_Spectator.GhostSpectating())
+		return false;
 	bool NewInput[2] = {};
 	for(int Dummy = 0; Dummy < NUM_DUMMIES; Dummy++)
 	{
@@ -540,6 +582,20 @@ bool CControls::CheckNewInput()
 			NewInput[Dummy] = true;
 		if(m_aFastInput[Dummy].m_WantedWeapon != TestInput.m_WantedWeapon)
 			NewInput[Dummy] = true;
+
+		// Cloud samples the current input without the TClient hook/fire aim latch.
+		if(AxionInput::Cloud())
+		{
+			m_FastInputHookAction = false;
+			m_FastInputFireAction = false;
+			if(Dummy == g_Config.m_ClDummy && g_Config.m_ClSubTickAiming)
+			{
+				TestInput.m_TargetX = (int)m_aMousePos[Dummy].x;
+				TestInput.m_TargetY = (int)m_aMousePos[Dummy].y;
+			}
+			m_aFastInput[Dummy] = TestInput;
+			continue;
+		}
 
 		// When sub tick aiming is disabled on the first tick of a hook it's viable to update the fast input
 		// prediction on every mouse movement before the hook+direction input is sent and finalized.

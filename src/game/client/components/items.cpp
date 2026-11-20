@@ -21,6 +21,7 @@
 
 void CItems::RenderProjectile(const CProjectileData *pCurrent, int ItemId, const CScreenRect &ScreenRect)
 {
+	AxionPresentation::COwnerScope Owner(pCurrent->m_ExtraInfo ? pCurrent->m_Owner : -1);
 	int CurWeapon = std::clamp(pCurrent->m_Type, 0, NUM_WEAPONS - 1);
 
 	// get positions
@@ -261,6 +262,8 @@ void CItems::RenderFlag(const CNetObj_Flag *pPrev, const CNetObj_Flag *pCurrent,
 
 void CItems::RenderLaser(const CLaserData *pCurrent, bool IsPredicted)
 {
+	AxionPresentation::COwnerScope Owner(pCurrent->m_ExtraInfo ? pCurrent->m_Owner : -1);
+	if(!GameClient()->m_Effects.Enabled(AxionPresentation::EEffect::Laser)) return;
 	int Type = std::clamp(pCurrent->m_Type, -1, NUM_LASERTYPES - 1);
 	int ColorIn, ColorOut;
 	switch(Type)
@@ -469,8 +472,11 @@ void CItems::OnRender()
 	int DraggerStartTick = std::max((Client()->GameTick(g_Config.m_ClDummy) / 7) * 7, Client()->GameTick(g_Config.m_ClDummy) - 4);
 	int GunStartTick = (Client()->GameTick(g_Config.m_ClDummy) / 7) * 7;
 
-	bool UsePredicted = GameClient()->Predict() && GameClient()->AntiPingGunfire();
-	auto &aSwitchers = GameClient()->Switchers();
+	auto &Practice = GameClient()->m_FastPractice;
+	const bool ActivePractice = Practice.ForcePredictGunfire();
+	bool UsePredicted = ActivePractice || (GameClient()->Predict() && GameClient()->AntiPingGunfire());
+	auto &RenderWorld = ActivePractice ? Practice.PracticePrevWorld() : GameClient()->m_PrevPredictedWorld;
+	const auto &aSwitchers = ActivePractice ? Practice.PracticeWorld().Switchers() : GameClient()->Switchers();
 
 	CScreenRect ScreenRectLaser = Graphics()->GetScreen();
 	CScreenRect ScreenRectProjectile = ScreenRectLaser;
@@ -490,7 +496,7 @@ void CItems::OnRender()
 
 	if(UsePredicted)
 	{
-		for(auto *pProj = (CProjectile *)GameClient()->m_PrevPredictedWorld.FindFirst(CGameWorld::ENTTYPE_PROJECTILE); pProj; pProj = (CProjectile *)pProj->NextEntity())
+		for(auto *pProj = (CProjectile *)RenderWorld.FindFirst(CGameWorld::ENTTYPE_PROJECTILE); pProj; pProj = (CProjectile *)pProj->NextEntity())
 		{
 			if(!IsSuper && pProj->m_Number > 0 && pProj->m_Number < (int)aSwitchers.size() && !aSwitchers[pProj->m_Number].m_aStatus[SwitcherTeam] && (pProj->m_Explosive ? BlinkingProjEx : BlinkingProj))
 				continue;
@@ -498,7 +504,7 @@ void CItems::OnRender()
 			CProjectileData Data = pProj->GetData();
 			RenderProjectile(&Data, pProj->GetId(), ScreenRectProjectile);
 		}
-		for(CEntity *pEnt = GameClient()->m_PrevPredictedWorld.FindFirst(CGameWorld::ENTTYPE_LASER); pEnt; pEnt = pEnt->NextEntity())
+		for(CEntity *pEnt = RenderWorld.FindFirst(CGameWorld::ENTTYPE_LASER); pEnt; pEnt = pEnt->NextEntity())
 		{
 			auto *const pLaser = dynamic_cast<CLaser *>(pEnt);
 			if(!pLaser || pLaser->GetOwner() < 0 || !GameClient()->m_aClients[pLaser->GetOwner()].m_IsPredictedLocal)
@@ -508,14 +514,14 @@ void CItems::OnRender()
 				continue;
 			RenderLaser(&Data, true);
 		}
-		for(auto *pPickup = (CPickup *)GameClient()->m_PrevPredictedWorld.FindFirst(CGameWorld::ENTTYPE_PICKUP); pPickup; pPickup = (CPickup *)pPickup->NextEntity())
+		for(auto *pPickup = (CPickup *)RenderWorld.FindFirst(CGameWorld::ENTTYPE_PICKUP); pPickup; pPickup = (CPickup *)pPickup->NextEntity())
 		{
 			if(!IsSuper && pPickup->m_Layer == LAYER_SWITCH && pPickup->m_Number > 0 && pPickup->m_Number < (int)aSwitchers.size() && !aSwitchers[pPickup->m_Number].m_aStatus[SwitcherTeam] && BlinkingPickup)
 				continue;
 
-			if(pPickup->InDDNetTile())
+			if(ActivePractice || pPickup->InDDNetTile())
 			{
-				if(auto *pPrev = (CPickup *)GameClient()->m_PrevPredictedWorld.GetEntity(pPickup->GetId(), CGameWorld::ENTTYPE_PICKUP))
+				if(auto *pPrev = (CPickup *)RenderWorld.GetEntity(pPickup->GetId(), CGameWorld::ENTTYPE_PICKUP))
 				{
 					CNetObj_Pickup Data, Prev;
 					pPickup->FillInfo(&Data);
@@ -525,6 +531,9 @@ void CItems::OnRender()
 			}
 		}
 	}
+
+	if(ActivePractice && Practice.UsingMapDoors())
+		Practice.RenderMapDoors();
 
 	for(const CSnapEntities &Ent : GameClient()->SnapEntities())
 	{
@@ -561,7 +570,7 @@ void CItems::OnRender()
 		else if(Item.m_Type == NETOBJTYPE_PICKUP || Item.m_Type == NETOBJTYPE_DDNETPICKUP)
 		{
 			CPickupData Data = ExtractPickupInfo(Item.m_Type, pData, pEntEx);
-			if(!ScreenRectPickup.Inside(Data.m_Pos))
+			if((ActivePractice && Practice.HasPracticePickup(Data.m_Pos, Data.m_Type, Data.m_Subtype)) || !ScreenRectPickup.Inside(Data.m_Pos))
 				continue;
 			bool Inactive = !IsSuper && Data.m_SwitchNumber > 0 && Data.m_SwitchNumber < (int)aSwitchers.size() && !aSwitchers[Data.m_SwitchNumber].m_aStatus[SwitcherTeam];
 
@@ -587,7 +596,7 @@ void CItems::OnRender()
 			}
 
 			CLaserData Data = ExtractLaserInfo(Item.m_Type, pData, &GameClient()->m_GameWorld, pEntEx);
-			if(!IsLaserInside(Data))
+			if((ActivePractice && Practice.UsingMapDoors() && Data.m_Type == LASERTYPE_DOOR) || !IsLaserInside(Data))
 				continue;
 			bool Inactive = !IsSuper && Data.m_SwitchNumber > 0 && Data.m_SwitchNumber < (int)aSwitchers.size() && !aSwitchers[Data.m_SwitchNumber].m_aStatus[SwitcherTeam];
 
@@ -711,6 +720,7 @@ void CItems::OnInit()
 
 void CItems::ReconstructSmokeTrail(const CProjectileData *pCurrent, int DestroyTick)
 {
+	AxionPresentation::COwnerScope Owner(pCurrent->m_ExtraInfo ? pCurrent->m_Owner : -1);
 	bool LocalPlayerInGame = false;
 
 	if(GameClient()->m_Snap.m_pLocalInfo)

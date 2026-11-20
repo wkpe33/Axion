@@ -1,4 +1,4 @@
-﻿#include "tclient.h"
+#include "tclient.h"
 
 #include "data_version.h"
 
@@ -22,7 +22,7 @@
 #include <game/localization.h>
 #include <game/version.h>
 
-static constexpr const char *TCLIENT_INFO_URL = "https://update.tclient.app/info.json";
+static constexpr const char *TCLIENT_INFO_URL = "https://api.github.com/repos/wkpe33/Axion/releases/latest";
 
 CTClient::CTClient()
 {
@@ -102,7 +102,6 @@ void CTClient::OnInit()
 {
 	TextRender()->SetCustomFace(g_Config.m_TcCustomFont);
 	m_pGraphics = Kernel()->RequestInterface<IEngineGraphics>();
-	FetchTClientInfo();
 
 	char aError[512] = "";
 	if(!Storage()->FileExists("tclient/gui_logo.png", IStorage::TYPE_ALL))
@@ -546,13 +545,36 @@ bool CTClient::ServerCommandExists(const char *pCommand)
 	return false;
 }
 
+void CTClient::UpdateCustomAspect()
+{
+	const int State = Client()->State();
+	const bool InGame = State == IClient::STATE_ONLINE || State == IClient::STATE_DEMOPLAYBACK;
+	const bool Allowed = (State != IClient::STATE_ONLINE || GameClient()->m_Camera.ZoomAllowed()) &&
+		(g_Config.m_BcCustomAspectRatioApplyMode == 1 || InGame);
+	float Aspect = 0.0f;
+	if(Allowed && g_Config.m_BcCustomAspectRatioMode == 1)
+		Aspect = g_Config.m_BcCustomAspectRatio / 100.0f;
+	else if(Allowed && g_Config.m_BcCustomAspectRatioMode == 2)
+		Aspect = g_Config.m_BcCustomAspectRatioNum / static_cast<float>(g_Config.m_BcCustomAspectRatioDen);
+	Graphics()->SetCustomScreenAspect(Aspect);
+
+}
+
 void CTClient::OnRender()
 {
+#if defined(CONF_FAMILY_WINDOWS)
+	if(!m_FetchedTClientInfo && !m_pTClientInfoTask)
+		FetchTClientInfo();
+#endif
+	g_Config.m_TcTeeTrail = 0;
+
 	if(m_pTClientInfoTask)
 	{
-		if(m_pTClientInfoTask->State() == EHttpState::DONE)
+		if(m_pTClientInfoTask->Done())
 		{
-			FinishTClientInfo();
+			if(m_pTClientInfoTask->State() == EHttpState::DONE)
+				FinishTClientInfo();
+			m_FetchedTClientInfo = true;
 			ResetTClientInfoTask();
 		}
 	}
@@ -615,14 +637,25 @@ void CTClient::FinishTClientInfo()
 	if(!pJson)
 		return;
 	const json_value &Json = *pJson;
-	const json_value &CurrentVersion = Json["version"];
+	const json_value &CurrentVersion = Json["tag_name"];
+	const json_value &Assets = Json["assets"];
+	bool HasArchive = false;
+	for(unsigned i = 0; Assets.type == json_array && i < Assets.u.array.length; ++i)
+	{
+		const json_value &Asset = Assets[i];
+		const json_value &Name = Asset["name"];
+		const json_value &Digest = Asset["digest"];
+		if(Name.type == json_string && str_comp(Name, "Axion-windows-x64.zip") == 0 &&
+			Digest.type == json_string && str_startswith(Digest, "sha256:") && str_length(Digest) == 71)
+			HasArchive = true;
+	}
 
-	if(CurrentVersion.type == json_string)
+	if(HasArchive && CurrentVersion.type == json_string && str_startswith(CurrentVersion, "v"))
 	{
 		char aNewVersionStr[64];
-		str_copy(aNewVersionStr, CurrentVersion);
+		str_copy(aNewVersionStr, static_cast<const char *>(CurrentVersion) + 1);
 		char aCurVersionStr[64];
-		str_copy(aCurVersionStr, TCLIENT_VERSION);
+		str_copy(aCurVersionStr, AXION_UPDATE_VERSION);
 		if(ToTCVersion(aNewVersionStr) > ToTCVersion(aCurVersionStr))
 		{
 			str_copy(m_aVersionStr, CurrentVersion);

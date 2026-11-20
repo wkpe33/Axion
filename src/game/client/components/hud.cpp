@@ -1,6 +1,7 @@
 /* (c) Magnus Auvinen. See licence.txt in the root of the distribution for more information. */
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 #include "hud.h"
+#include "axion_hud_layout.h"
 
 #include "binds.h"
 #include "camera.h"
@@ -119,77 +120,44 @@ void CHud::OnInit()
 
 void CHud::RenderGameTimer()
 {
-	float Half = m_Width / 2.0f;
-
-	if(!(GameClient()->m_Snap.m_pGameInfoObj->m_GameStateFlags & GAMESTATEFLAG_SUDDENDEATH))
-	{
-		char aBuf[32];
-		int Time = 0;
-		if(GameClient()->m_Snap.m_pGameInfoObj->m_TimeLimit && (GameClient()->m_Snap.m_pGameInfoObj->m_WarmupTimer <= 0))
-		{
-			Time = GameClient()->m_Snap.m_pGameInfoObj->m_TimeLimit * 60 - ((Client()->GameTick(g_Config.m_ClDummy) - GameClient()->m_Snap.m_pGameInfoObj->m_RoundStartTick) / Client()->GameTickSpeed());
-
-			if(GameClient()->m_Snap.m_pGameInfoObj->m_GameStateFlags & GAMESTATEFLAG_GAMEOVER)
-				Time = 0;
-		}
-		else if(GameClient()->m_Snap.m_pGameInfoObj->m_GameStateFlags & GAMESTATEFLAG_RACETIME)
-		{
-			// The Warmup timer is negative in this case to make sure that incompatible clients will not see a warmup timer
-			Time = (Client()->GameTick(g_Config.m_ClDummy) + GameClient()->m_Snap.m_pGameInfoObj->m_WarmupTimer) / Client()->GameTickSpeed();
-		}
-		else
-		{
-			Time = (Client()->GameTick(g_Config.m_ClDummy) - GameClient()->m_Snap.m_pGameInfoObj->m_RoundStartTick) / Client()->GameTickSpeed();
-		}
-
-		str_time((int64_t)Time * 100, ETimeFormat::DAYS, aBuf, sizeof(aBuf));
-		float FontSize = 10.0f;
-		static float s_TextWidthM = TextRender()->TextWidth(FontSize, "00:00", -1, -1.0f);
-		static float s_TextWidthH = TextRender()->TextWidth(FontSize, "00:00:00", -1, -1.0f);
-		static float s_TextWidth0D = TextRender()->TextWidth(FontSize, "0d 00:00:00", -1, -1.0f);
-		static float s_TextWidth00D = TextRender()->TextWidth(FontSize, "00d 00:00:00", -1, -1.0f);
-		static float s_TextWidth000D = TextRender()->TextWidth(FontSize, "000d 00:00:00", -1, -1.0f);
-		float w = Time >= 3600 * 24 * 100 ? s_TextWidth000D : (Time >= 3600 * 24 * 10 ? s_TextWidth00D : (Time >= 3600 * 24 ? s_TextWidth0D : (Time >= 3600 ? s_TextWidthH : s_TextWidthM)));
-		// last 60 sec red, last 10 sec blink
-		if(GameClient()->m_Snap.m_pGameInfoObj->m_TimeLimit && Time <= 60 && (GameClient()->m_Snap.m_pGameInfoObj->m_WarmupTimer <= 0))
-		{
-			float Alpha = Time <= 10 && (2 * time() / time_freq()) % 2 ? 0.5f : 1.0f;
-			TextRender()->TextColor(1.0f, 0.25f, 0.25f, Alpha);
-		}
-		TextRender()->Text(Half - w / 2, 2, FontSize, aBuf, -1.0f);
-		TextRender()->TextColor(1.0f, 1.0f, 1.0f, 1.0f);
-	}
+ // Axion overlay owns the timer and its existing HUD-editor module.
 }
 
 void CHud::RenderPauseNotification()
 {
+	AxionHud::CScope Layout(Graphics(), AxionHud::NOTICES);
 	if(GameClient()->m_Snap.m_pGameInfoObj->m_GameStateFlags & GAMESTATEFLAG_PAUSED &&
 		!(GameClient()->m_Snap.m_pGameInfoObj->m_GameStateFlags & GAMESTATEFLAG_GAMEOVER))
 	{
 		const char *pText = Localize("Game paused");
 		float FontSize = 20.0f;
 		float w = TextRender()->TextWidth(FontSize, pText, -1, -1.0f);
+		AxionHud::Record(AxionHud::NOTICES, {m_Width / 2 - w / 2, 50, w, FontSize}, m_Width, m_Height);
 		TextRender()->Text(150.0f * Graphics()->ScreenAspect() + -w / 2.0f, 50.0f, FontSize, pText, -1.0f);
 	}
 }
 
 void CHud::RenderSuddenDeath()
 {
+	AxionHud::CScope Layout(Graphics(), AxionHud::NOTICES);
 	if(GameClient()->m_Snap.m_pGameInfoObj->m_GameStateFlags & GAMESTATEFLAG_SUDDENDEATH)
 	{
 		float Half = m_Width / 2.0f;
 		const char *pText = Localize("Sudden Death");
 		float FontSize = 12.0f;
 		float w = TextRender()->TextWidth(FontSize, pText, -1, -1.0f);
+		AxionHud::Record(AxionHud::NOTICES, {Half - w / 2, 2, w, FontSize}, m_Width, m_Height);
 		TextRender()->Text(Half - w / 2, 2, FontSize, pText, -1.0f);
 	}
 }
 
 void CHud::RenderScoreHud()
 {
+	AxionHud::CScope Layout(Graphics(), AxionHud::SCORE);
 	// render small score hud
 	if(!(GameClient()->m_Snap.m_pGameInfoObj->m_GameStateFlags & GAMESTATEFLAG_GAMEOVER))
 	{
+		AxionHud::Record(AxionHud::SCORE, {m_Width - 100, 229, 100, 56}, m_Width, m_Height);
 		float StartY = 229.0f; // the height of this display is 56, so EndY is 285
 
 		const float ScoreSingleBoxHeight = 18.0f;
@@ -517,6 +485,7 @@ void CHud::RenderScoreHud()
 
 void CHud::RenderWarmupTimer()
 {
+	AxionHud::CScope Layout(Graphics(), AxionHud::NOTICES);
 	if(GameClient()->m_Snap.m_pGameInfoObj->m_WarmupTimer <= 0 ||
 		(GameClient()->m_Snap.m_pGameInfoObj->m_GameStateFlags & GAMESTATEFLAG_RACETIME) != 0)
 	{
@@ -525,6 +494,8 @@ void CHud::RenderWarmupTimer()
 
 	const float FontSize = 20.0f;
 	const char *pTitle = Localize("Warmup");
+	const float TitleWidth = TextRender()->TextWidth(FontSize, pTitle);
+	AxionHud::Record(AxionHud::NOTICES, {m_Width / 2 - TitleWidth / 2, 50, TitleWidth, 45}, m_Width, m_Height);
 	TextRender()->Text(150.0f * Graphics()->ScreenAspect() - TextRender()->TextWidth(FontSize, pTitle) / 2.0f, 50.0f, FontSize, pTitle);
 
 	const int Seconds = GameClient()->m_Snap.m_pGameInfoObj->m_WarmupTimer / Client()->GameTickSpeed();
@@ -552,6 +523,7 @@ void CHud::RenderTextInfo()
 #endif
 	if(Showfps)
 	{
+		AxionHud::CScope Layout(Graphics(), AxionHud::INFO);
 		char aBuf[16];
 		const int FramesPerSecond = round_to_int(1.0f / Client()->FrameTimeAverage());
 		str_format(aBuf, sizeof(aBuf), "%d", FramesPerSecond);
@@ -567,6 +539,7 @@ void CHud::RenderTextInfo()
 
 		CTextCursor Cursor;
 		Cursor.SetPosition(vec2(m_Width - 10 - s_aTextWidth[DigitIndex], 5));
+		AxionHud::Record(AxionHud::INFO, {m_Width - 10 - s_aTextWidth[DigitIndex], 5, s_aTextWidth[DigitIndex], 12}, m_Width, m_Height);
 		Cursor.m_FontSize = 12.0f;
 		auto OldFlags = TextRender()->GetRenderFlags();
 		TextRender()->SetRenderFlags(OldFlags | TEXT_RENDER_FLAG_ONE_TIME_USE);
@@ -582,13 +555,17 @@ void CHud::RenderTextInfo()
 	}
 	if(g_Config.m_ClShowpred && Client()->State() != IClient::STATE_DEMOPLAYBACK)
 	{
+		AxionHud::CScope Layout(Graphics(), AxionHud::INFO);
 		char aBuf[64];
 		str_format(aBuf, sizeof(aBuf), "%d", Client()->GetPredictionTime());
-		TextRender()->Text(m_Width - 10 - TextRender()->TextWidth(12, aBuf, -1, -1.0f), Showfps ? 20 : 5, 12, aBuf, -1.0f);
+		const float Width = TextRender()->TextWidth(12, aBuf);
+		AxionHud::Record(AxionHud::INFO, {m_Width - 10 - Width, Showfps ? 20.0f : 5.0f, Width, 12}, m_Width, m_Height);
+		TextRender()->Text(m_Width - 10 - Width, Showfps ? 20 : 5, 12, aBuf, -1.0f);
 	}
 
 	if(g_Config.m_TcMiniDebug)
 	{
+		AxionHud::CScope Layout(Graphics(), AxionHud::DEBUG);
 		float FontSize = 8.0f;
 		float TextHeight = 11.0f;
 		char aBuf[64];
@@ -603,6 +580,7 @@ void CHud::RenderTextInfo()
 		else if(g_Config.m_ClShowhudHealthAmmo && GameClient()->m_Snap.m_SpecInfo.m_SpectatorId != SPEC_FREEVIEW)
 			OffsetY += 27.0f;
 
+		AxionHud::Record(AxionHud::DEBUG, {4, OffsetY, 80, 44}, m_Width, m_Height);
 		vec2 Pos;
 		if(GameClient()->m_Snap.m_SpecInfo.m_SpectatorId == SPEC_FREEVIEW)
 			Pos = vec2(GameClient()->m_Controls.m_aMousePos[g_Config.m_ClDummy].x, GameClient()->m_Controls.m_aMousePos[g_Config.m_ClDummy].y);
@@ -667,6 +645,7 @@ void CHud::RenderTextInfo()
 		// Notify when last
 		if(g_Config.m_TcNotifyWhenLast)
 		{
+			AxionHud::CScope Layout(Graphics(), AxionHud::LAST);
 			if(NumInTeam > 1 && NumInTeam - NumFrozen == 1)
 			{
 				TextRender()->TextColor(color_cast<ColorRGBA>(ColorHSLA(g_Config.m_TcNotifyWhenLastColor)));
@@ -674,6 +653,7 @@ void CHud::RenderTextInfo()
 				float XPos = std::clamp((g_Config.m_TcNotifyWhenLastX / 100.0f) * m_Width, 1.0f, m_Width - FontSize);
 				float YPos = std::clamp((g_Config.m_TcNotifyWhenLastY / 100.0f) * m_Height, 1.0f, m_Height - FontSize);
 
+				AxionHud::Record(AxionHud::LAST, {XPos, YPos, TextRender()->TextWidth(FontSize, g_Config.m_TcNotifyWhenLastText), FontSize}, m_Width, m_Height);
 				TextRender()->Text(XPos, YPos, FontSize, g_Config.m_TcNotifyWhenLastText, -1.0f);
 				TextRender()->TextColor(TextRender()->DefaultTextColor());
 			}
@@ -685,7 +665,12 @@ void CHud::RenderTextInfo()
 		else if(g_Config.m_TcShowFrozenText == 2)
 			str_format(aBuf, sizeof(aBuf), "%d / %d", NumFrozen, NumInTeam);
 		if(g_Config.m_TcShowFrozenText > 0)
-			TextRender()->Text(m_Width / 2.0f - TextRender()->TextWidth(10.0f, aBuf) / 2.0f, 12.0f, 10.0f, aBuf);
+		{
+			AxionHud::CScope Layout(Graphics(), AxionHud::FROZENTEXT);
+			const float Width = TextRender()->TextWidth(10.0f, aBuf);
+			AxionHud::Record(AxionHud::FROZENTEXT, {(m_Width - Width) / 2, 12, Width, 10}, m_Width, m_Height);
+			TextRender()->Text((m_Width - Width) / 2, 12.0f, 10.0f, aBuf);
+		}
 
 		// str_format(aBuf, sizeof(aBuf), "%d", GameClient()->m_aClients[GameClient()->m_Snap.m_LocalClientId].m_PrevPredicted.m_FreezeEnd);
 		// str_format(aBuf, sizeof(aBuf), "%d", g_Config.m_ClWhatsMyPing);
@@ -693,6 +678,7 @@ void CHud::RenderTextInfo()
 
 		if(g_Config.m_TcShowFrozenHud > 0 && !GameClient()->m_Scoreboard.IsActive() && !(LocalTeamID == 0 && g_Config.m_TcFrozenHudTeamOnly))
 		{
+			AxionHud::CScope Layout(Graphics(), AxionHud::FROZEN);
 			CTeeRenderInfo FreezeInfo;
 			const CSkin *pSkin = GameClient()->m_Skins.Find("x_ninja");
 			FreezeInfo.m_OriginalRenderSkin = pSkin->m_OriginalSkin;
@@ -712,6 +698,7 @@ void CHud::RenderTextInfo()
 			float StartPos = m_Width / 2.0f + 38.0f * (m_Width / m_Height) / 1.78f;
 
 			int TotalRows = std::min(MaxRows, (NumInTeam + MaxTees - 1) / MaxTees);
+			AxionHud::Record(AxionHud::FROZEN, {StartPos - TeeSize / 2, 0, TeeSize * std::min(NumInTeam, MaxTees), std::max(TeeSize, TeeSize + 3 + (TotalRows - 1) * TeeSize)}, m_Width, m_Height);
 			Graphics()->TextureClear();
 			Graphics()->QuadsBegin();
 			Graphics()->SetColor(0.0f, 0.0f, 0.0f, 0.4f);
@@ -782,20 +769,24 @@ void CHud::RenderTextInfo()
 			}
 		}
 	}
+
 }
 
 void CHud::RenderConnectionWarning()
 {
+	AxionHud::CScope Layout(Graphics(), AxionHud::NOTICES);
 	if(Client()->ConnectionProblems())
 	{
 		const char *pText = Localize("Connection Problems…");
 		float w = TextRender()->TextWidth(24, pText, -1, -1.0f);
+		AxionHud::Record(AxionHud::NOTICES, {m_Width / 2 - w / 2, 50, w, 24}, m_Width, m_Height);
 		TextRender()->Text(150 * Graphics()->ScreenAspect() - w / 2, 50, 24, pText, -1.0f);
 	}
 }
 
 void CHud::RenderTeambalanceWarning()
 {
+	AxionHud::CScope Layout(Graphics(), AxionHud::NOTICES);
 	// render prompt about team-balance
 	bool Flash = time() / (time_freq() / 2) % 2 == 0;
 	if(GameClient()->IsTeamPlay())
@@ -808,6 +799,7 @@ void CHud::RenderTeambalanceWarning()
 				TextRender()->TextColor(1, 1, 0.5f, 1);
 			else
 				TextRender()->TextColor(0.7f, 0.7f, 0.2f, 1.0f);
+			AxionHud::Record(AxionHud::NOTICES, {5, 50, TextRender()->TextWidth(6, pText), 6}, m_Width, m_Height);
 			TextRender()->Text(5, 50, 6, pText, -1.0f);
 			TextRender()->TextColor(TextRender()->DefaultTextColor());
 		}
@@ -816,6 +808,9 @@ void CHud::RenderTeambalanceWarning()
 
 void CHud::RenderCursor()
 {
+	if((Client()->State() != IClient::STATE_ONLINE && Client()->State() != IClient::STATE_DEMOPLAYBACK) || !GameClient()->m_Snap.m_pGameInfoObj)
+		return;
+
 	const float Scale = (float)g_Config.m_TcCursorScale / 100.0f;
 	if(Scale <= 0.0f)
 		return;
@@ -828,7 +823,7 @@ void CHud::RenderCursor()
 	CScreenRect ScreenRect = Graphics()->MapScreenToWorld(Center.x, Center.y, 100.0f, 100.0f, 100.0f, 0, 0, Graphics()->ScreenAspect(), 1.0f);
 	Graphics()->MapScreen(ScreenRect);
 
-	if(Client()->State() != IClient::STATE_DEMOPLAYBACK && GameClient()->m_Snap.m_pLocalCharacter)
+	if(Client()->State() != IClient::STATE_DEMOPLAYBACK && GameClient()->m_Snap.m_pLocalCharacter && !GameClient()->m_Spectator.GhostSpectating())
 	{
 		// Render local cursor
 		CurWeapon = std::max(0, GameClient()->m_aClients[GameClient()->m_Snap.m_LocalClientId].m_Predicted.m_ActiveWeapon);
@@ -939,11 +934,15 @@ void CHud::PrepareAmmoHealthAndArmorQuads()
 
 void CHud::RenderAmmoHealthAndArmor(const CNetObj_Character *pCharacter)
 {
+	AxionHud::CScope Layout(Graphics(), AxionHud::HEALTH);
 	if(!pCharacter)
 		return;
 
 	bool IsSixupGameSkin = GameClient()->m_GameSkin.IsSixup();
 	int QuadOffsetSixup = (IsSixupGameSkin ? 10 : 0);
+	if(GameClient()->m_GameInfo.m_HudAmmo || GameClient()->m_GameInfo.m_HudHealthArmor)
+		AxionHud::Record(AxionHud::HEALTH, {5, 5, 120, GameClient()->m_GameInfo.m_HudHealthArmor ?
+			(GameClient()->m_GameInfo.m_HudAmmo ? 36.0f : 24.0f) : 12.0f}, m_Width, m_Height);
 
 	if(GameClient()->m_GameInfo.m_HudAmmo)
 	{
@@ -1061,6 +1060,7 @@ void CHud::RenderPlayerState(const int ClientId)
 	int TotalJumpsToDisplay = 0;
 	if(g_Config.m_ClShowhudJumpsIndicator)
 	{
+		AxionHud::CScope Layout(Graphics(), AxionHud::JUMPS);
 		int AvailableJumpsToDisplay;
 		if(GameClient()->m_Snap.m_aCharacters[ClientId].m_HasExtendedDisplayInfo)
 		{
@@ -1101,8 +1101,9 @@ void CHud::RenderPlayerState(const int ClientId)
 		}
 
 		// render available and used jumps
-		int JumpsOffsetY = ((GameClient()->m_GameInfo.m_HudHealthArmor && g_Config.m_ClShowhudHealthAmmo ? 24 : 0) +
-				    (GameClient()->m_GameInfo.m_HudAmmo && g_Config.m_ClShowhudHealthAmmo ? 12 : 0));
+		const int JumpsOffsetY = !g_Config.m_AxNewHud && g_Config.m_ClShowhudHealthAmmo ?
+			(GameClient()->m_GameInfo.m_HudHealthArmor ? 24 : 0) + (GameClient()->m_GameInfo.m_HudAmmo ? 12 : 0) : 0;
+		AxionHud::Record(AxionHud::JUMPS, {5, 29.0f + JumpsOffsetY, std::max(24.0f, TotalJumpsToDisplay * 12.0f), 12}, m_Width, m_Height);
 		if(JumpsOffsetY > 0)
 		{
 			Graphics()->TextureSet(GameClient()->m_HudSkin.m_SpriteHudAirjump);
@@ -1119,9 +1120,15 @@ void CHud::RenderPlayerState(const int ClientId)
 		}
 	}
 
+	if(g_Config.m_AxNewHud || !g_Config.m_ClShowhudDDRace)
+		return;
+
+	AxionHud::CScope Layout(Graphics(), AxionHud::STATE);
 	float x = 5 + 12;
 	float y = (5 + 12 + (GameClient()->m_GameInfo.m_HudHealthArmor && g_Config.m_ClShowhudHealthAmmo ? 24 : 0) +
 		   (GameClient()->m_GameInfo.m_HudAmmo && g_Config.m_ClShowhudHealthAmmo ? 12 : 0));
+
+	const float LayoutTop = y - 12;
 
 	// render weapons
 	{
@@ -1305,6 +1312,7 @@ void CHud::RenderPlayerState(const int ClientId)
 		Graphics()->TextureSet(GameClient()->m_HudSkin.m_SpriteHudLiveFrozen);
 		Graphics()->RenderQuadContainerAsSprite(m_HudQuadContainerIndex, m_LiveFrozenOffset, x, y);
 	}
+	AxionHud::Record(AxionHud::STATE, {5, LayoutTop, 120, y - LayoutTop + 12}, m_Width, m_Height);
 }
 
 void CHud::RenderNinjaBarPos(const float x, float y, const float Width, const float Height, float Progress, const float Alpha)
@@ -1460,36 +1468,59 @@ void CHud::RenderNinjaBarPos(const float x, float y, const float Width, const fl
 
 void CHud::RenderSpectatorCount()
 {
+	AxionHud::CScope Layout(Graphics(), AxionHud::SPECTATORS);
 	if(!g_Config.m_ClShowhudSpectatorCount)
 	{
 		return;
 	}
 
-	int Count = 0;
-	if(Client()->IsSixup())
-	{
-		for(int i = 0; i < MAX_CLIENTS; i++)
-		{
-			if(i == GameClient()->m_aLocalIds[0] || (GameClient()->Client()->DummyConnected() && i == GameClient()->m_aLocalIds[1]))
-				continue;
+	constexpr float Fontsize = 6.0f;
+	constexpr int MaxVisibleNames = 5;
+	const char *apNames[MaxVisibleNames + 1] = {};
+	int aWatchers[MAX_CLIENTS];
+	int NumWatchers = 0;
+	const bool Sixup = Client()->IsSixup();
+	const auto &Snap = GameClient()->m_Snap;
+	const int LocalId = GameClient()->m_aLocalIds[0];
+	const int DummyId = Client()->DummyConnected() ? GameClient()->m_aLocalIds[1] : -1;
+	const int CountFromServer = Snap.m_pSpectatorCount ? Snap.m_pSpectatorCount->m_NumSpectators : 0;
 
-			if(Client()->m_TranslationContext.m_aClients[i].m_PlayerFlags7 & protocol7::PLAYERFLAG_WATCHING)
-			{
-				Count++;
-			}
-		}
-	}
-	else
+	for(int Id = 0; Id < MAX_CLIENTS; ++Id)
 	{
-		const CNetObj_SpectatorCount *pSpectatorCount = GameClient()->m_Snap.m_pSpectatorCount;
-		if(!pSpectatorCount)
-		{
-			m_LastSpectatorCountTick = Client()->GameTick(g_Config.m_ClDummy);
-			return;
-		}
-		Count = pSpectatorCount->m_NumSpectators;
+		if(Id == LocalId || Id == DummyId)
+			continue;
+		const bool Watching = Sixup ?
+			(Client()->m_TranslationContext.m_aClients[Id].m_PlayerFlags7 & protocol7::PLAYERFLAG_WATCHING) != 0 :
+			Snap.m_aSpectatorWatchers[Id];
+		if(Watching)
+			aWatchers[NumWatchers++] = Id;
 	}
 
+	const int Count = Sixup ? NumWatchers : CountFromServer;
+	if(g_Config.m_AxSpectatorNames && !Sixup && Count > 0 && NumWatchers == 0)
+	{
+		// BestClient's fallback for servers that only report the count.
+		for(int Id = 0; Id < MAX_CLIENTS; ++Id)
+		{
+			const auto *pInfo = Snap.m_apPlayerInfos[Id];
+			const auto &Player = GameClient()->m_aClients[Id];
+			if(Id != LocalId && Id != DummyId && pInfo && Player.m_Active &&
+				(pInfo->m_Team == TEAM_SPECTATORS || Player.m_Spec || Player.m_Paused))
+				aWatchers[NumWatchers++] = Id;
+		}
+		if(NumWatchers != Count)
+			NumWatchers = 0;
+	}
+	int Named = 0;
+	if(g_Config.m_AxSpectatorNames)
+	{
+		for(int i = 0; i < NumWatchers && Named < MaxVisibleNames; ++i)
+		{
+			const char *pName = GameClient()->m_aClients[aWatchers[i]].m_aName;
+			if(pName[0])
+				apNames[Named++] = pName;
+		}
+	}
 	if(Count == 0)
 	{
 		m_LastSpectatorCountTick = Client()->GameTick(g_Config.m_ClDummy);
@@ -1501,11 +1532,23 @@ void CHud::RenderSpectatorCount()
 		return;
 
 	char aBuf[16];
-	str_format(aBuf, sizeof(aBuf), "%d", Count);
+	int NumLines = Named;
+	if(Named == 0)
+	{
+		str_format(aBuf, sizeof(aBuf), "%d", Count);
+		apNames[NumLines++] = aBuf;
+	}
+	else if(Named < Count)
+	{
+		str_format(aBuf, sizeof(aBuf), "+%d", Count - Named);
+		apNames[NumLines++] = aBuf;
+	}
 
-	const float Fontsize = 6.0f;
-	const float BoxHeight = 14.f;
-	const float BoxWidth = 13.f + TextRender()->TextWidth(Fontsize, aBuf);
+	float TextWidth = 0;
+	for(int i = 0; i < NumLines; ++i)
+		TextWidth = std::max(TextWidth, TextRender()->TextWidth(Fontsize, apNames[i]));
+	const float BoxHeight = 14.0f + (NumLines - 1) * 8.0f;
+	const float BoxWidth = 13.0f + TextWidth;
 
 	float StartX = m_Width - BoxWidth;
 	float StartY = 285.0f - BoxHeight - 4; // 4 units distance to the next display;
@@ -1525,19 +1568,22 @@ void CHud::RenderSpectatorCount()
 		StartY = StartY - 29.0f - 4; // dummy actions height and padding
 	}
 
+	AxionHud::Record(AxionHud::SPECTATORS, {StartX, StartY, BoxWidth, BoxHeight}, m_Width, m_Height);
 	Graphics()->DrawRect(StartX, StartY, BoxWidth, BoxHeight, ColorRGBA(0.0f, 0.0f, 0.0f, 0.4f), IGraphics::CORNER_L, 5.0f);
 
-	float y = StartY + BoxHeight / 3;
+	float y = StartY + 14.0f / 3;
 	float x = StartX + 2;
 
 	TextRender()->SetFontPreset(EFontPreset::ICON_FONT);
 	TextRender()->Text(x, y, Fontsize, FontIcon::EYE, -1.0f);
 	TextRender()->SetFontPreset(EFontPreset::DEFAULT_FONT);
-	TextRender()->Text(x + Fontsize + 3.f, y, Fontsize, aBuf, -1.0f);
+	for(int i = 0; i < NumLines; ++i)
+		TextRender()->Text(x + Fontsize + 3.0f, y + i * 8.0f, Fontsize, apNames[i], -1.0f);
 }
 
 void CHud::RenderDummyActions()
 {
+	AxionHud::CScope Layout(Graphics(), AxionHud::DUMMY);
 	if(!g_Config.m_ClShowhudDummyActions || (GameClient()->m_Snap.m_pGameInfoObj->m_GameStateFlags & GAMESTATEFLAG_GAMEOVER) || !Client()->DummyConnected())
 	{
 		return;
@@ -1559,6 +1605,7 @@ void CHud::RenderDummyActions()
 		StartY -= 56;
 	}
 
+	AxionHud::Record(AxionHud::DUMMY, {StartX, StartY, BoxWidth, BoxHeight}, m_Width, m_Height);
 	Graphics()->DrawRect(StartX, StartY, BoxWidth, BoxHeight, ColorRGBA(0.0f, 0.0f, 0.0f, 0.4f), IGraphics::CORNER_L, 5.0f);
 
 	float y = StartY + 2;
@@ -1686,6 +1733,7 @@ CHud::CMovementInformation CHud::GetMovementInformation(int ClientId, int Conn) 
 
 void CHud::RenderMovementInformation()
 {
+	AxionHud::CScope Layout(Graphics(), AxionHud::MOVEMENT);
 	const int ClientId = GameClient()->m_Snap.m_SpecInfo.m_Active ? GameClient()->m_Snap.m_SpecInfo.m_SpectatorId : GameClient()->m_Snap.m_LocalClientId;
 	const bool PosOnly = ClientId == SPEC_FREEVIEW || (GameClient()->m_aClients[ClientId].m_SpecCharPresent);
 	// Draw the information depending on settings: Position, speed and target angle
@@ -1757,6 +1805,7 @@ void CHud::RenderMovementInformation()
 		StartY -= 56.0f;
 	}
 
+	AxionHud::Record(AxionHud::MOVEMENT, {StartX, StartY, BoxWidth, BoxHeight}, m_Width, m_Height);
 	Graphics()->DrawRect(StartX, StartY, BoxWidth, BoxHeight, ColorRGBA(0.0f, 0.0f, 0.0f, 0.4f), IGraphics::CORNER_L, 5.0f);
 
 	const CMovementInformation Info = GetMovementInformation(ClientId, g_Config.m_ClDummy);
@@ -1870,11 +1919,13 @@ void CHud::RenderMovementInformation()
 
 void CHud::RenderSpectatorHud()
 {
+	AxionHud::CScope Layout(Graphics(), AxionHud::SPECTATOR);
 	if(!g_Config.m_ClShowhudSpectator)
 		return;
 
 	// TClient
 	float AdjustedHeight = m_Height - (g_Config.m_TcStatusBar ? g_Config.m_TcStatusBarHeight : 0.0f);
+	AxionHud::Record(AxionHud::SPECTATOR, {m_Width - 180, AdjustedHeight - 15, 180, 15}, m_Width, m_Height);
 	// draw the box
 	Graphics()->DrawRect(m_Width - 180.0f, AdjustedHeight - 15.0f, 180.0f, 15.0f, ColorRGBA(0.0f, 0.0f, 0.0f, 0.4f), IGraphics::CORNER_TL, 5.0f);
 
@@ -1922,6 +1973,7 @@ void CHud::RenderSpectatorHud()
 
 void CHud::RenderLocalTime(float x)
 {
+	AxionHud::CScope Layout(Graphics(), AxionHud::CLOCK);
 	if(!g_Config.m_ClShowLocalTimeAlways && !GameClient()->m_Scoreboard.IsActive())
 		return;
 
@@ -1931,6 +1983,7 @@ void CHud::RenderLocalTime(float x)
 	str_timestamp_format(aTimeStr, sizeof(aTimeStr), Seconds ? "%H:%M.%S" : "%H:%M");
 	const float Width = std::round(TextRender()->TextBoundingBox(5.0f, aTimeStr).m_W);
 
+	AxionHud::Record(AxionHud::CLOCK, {x - Width - 15, 0, Width + 10, 12.5f}, m_Width, m_Height);
 	Graphics()->DrawRect(x - (Width + 15.0f), 0.0f, Width + 10.0f, 12.5f, ColorRGBA(0.0f, 0.0f, 0.0f, 0.4f), IGraphics::CORNER_B, 3.75f);
 	TextRender()->Text(x - (Width + 10.0f), (12.5f - 5.f) / 2.f, 5.0f, aTimeStr, -1.0f);
 
@@ -2002,13 +2055,29 @@ void CHud::OnRender()
 	if(g_Config.m_ClShowhud)
 #endif
 	{
+		if(g_Config.m_AxNewHud)
+		{
+			const auto &Snap = GameClient()->m_Snap;
+			const int Id = Snap.m_SpecInfo.m_Active ? Snap.m_SpecInfo.m_SpectatorId : Snap.m_LocalClientId;
+			const bool ShowPlayer = Snap.m_SpecInfo.m_Active ?
+				(!GameClient()->m_MultiViewActivated || GameClient()->m_MultiViewShowHud) :
+				Snap.m_pLocalCharacter && !(Snap.m_pGameInfoObj->m_GameStateFlags & GAMESTATEFLAG_GAMEOVER);
+			if(g_Config.m_ClShowhudJumpsIndicator && GameClient()->m_GameInfo.m_HudDDRace && ShowPlayer &&
+				Id >= 0 && Id < MAX_CLIENTS && Snap.m_aCharacters[Id].m_HasExtendedData)
+				RenderPlayerState(Id);
+			if(g_Config.m_AxSpectatorNames && ShowPlayer && !Snap.m_SpecInfo.m_Active)
+				RenderSpectatorCount();
+			GameClient()->m_Voting.Render();
+			return;
+		}
+
 		if(GameClient()->m_Snap.m_pLocalCharacter && !GameClient()->m_Snap.m_SpecInfo.m_Active && !(GameClient()->m_Snap.m_pGameInfoObj->m_GameStateFlags & GAMESTATEFLAG_GAMEOVER))
 		{
 			if(g_Config.m_ClShowhudHealthAmmo)
 			{
 				RenderAmmoHealthAndArmor(GameClient()->m_Snap.m_pLocalCharacter);
 			}
-			if(GameClient()->m_Snap.m_aCharacters[GameClient()->m_Snap.m_LocalClientId].m_HasExtendedData && g_Config.m_ClShowhudDDRace && GameClient()->m_GameInfo.m_HudDDRace)
+			if(GameClient()->m_Snap.m_aCharacters[GameClient()->m_Snap.m_LocalClientId].m_HasExtendedData && (g_Config.m_ClShowhudDDRace || g_Config.m_ClShowhudJumpsIndicator) && GameClient()->m_GameInfo.m_HudDDRace)
 			{
 				RenderPlayerState(GameClient()->m_Snap.m_LocalClientId);
 			}
@@ -2025,7 +2094,7 @@ void CHud::OnRender()
 			}
 			if(SpectatorId != SPEC_FREEVIEW &&
 				GameClient()->m_Snap.m_aCharacters[SpectatorId].m_HasExtendedData &&
-				g_Config.m_ClShowhudDDRace &&
+				(g_Config.m_ClShowhudDDRace || g_Config.m_ClShowhudJumpsIndicator) &&
 				(!GameClient()->m_MultiViewActivated || GameClient()->m_MultiViewShowHud) &&
 				GameClient()->m_GameInfo.m_HudDDRace)
 			{
@@ -2053,7 +2122,6 @@ void CHud::OnRender()
 		if(g_Config.m_ClShowRecord)
 			RenderRecord();
 	}
-	RenderCursor();
 }
 
 void CHud::OnMessage(int MsgType, void *pRawMsg)
@@ -2104,6 +2172,7 @@ void CHud::OnMessage(int MsgType, void *pRawMsg)
 
 void CHud::RenderDDRaceEffects()
 {
+	AxionHud::CScope Layout(Graphics(), AxionHud::FINISH);
 	if(m_DDRaceTime)
 	{
 		char aBuf[64];
@@ -2147,6 +2216,8 @@ void CHud::RenderDDRaceEffects()
 			}
 			if(m_DDRaceEffectsTextContainerIndex.Valid())
 			{
+				const auto Box = TextRender()->GetBoundingBoxTextContainer(m_DDRaceEffectsTextContainerIndex);
+				AxionHud::Record(AxionHud::FINISH, {Box.m_X, Box.m_Y, Box.m_W, Box.m_H}, m_Width, m_Height);
 				auto OutlineColor = TextRender()->DefaultTextOutlineColor();
 				OutlineColor.a *= Alpha;
 				TextRender()->RenderTextContainer(m_DDRaceEffectsTextContainerIndex, TextRender()->DefaultTextColor(), OutlineColor);
@@ -2188,6 +2259,8 @@ void CHud::RenderDDRaceEffects()
 
 			if(m_DDRaceEffectsTextContainerIndex.Valid())
 			{
+				const auto Box = TextRender()->GetBoundingBoxTextContainer(m_DDRaceEffectsTextContainerIndex);
+				AxionHud::Record(AxionHud::FINISH, {Box.m_X, Box.m_Y, Box.m_W, Box.m_H}, m_Width, m_Height);
 				auto OutlineColor = TextRender()->DefaultTextOutlineColor();
 				OutlineColor.a *= Alpha;
 				TextRender()->RenderTextContainer(m_DDRaceEffectsTextContainerIndex, TextRender()->DefaultTextColor(), OutlineColor);
@@ -2199,6 +2272,7 @@ void CHud::RenderDDRaceEffects()
 
 void CHud::RenderRecord()
 {
+	AxionHud::CScope Layout(Graphics(), AxionHud::RECORD);
 	if(GameClient()->m_MapBestTimeSeconds != FinishTime::UNSET && GameClient()->m_MapBestTimeSeconds != FinishTime::NOT_FINISHED_MILLIS)
 	{
 		char aBuf[64];
@@ -2207,6 +2281,7 @@ void CHud::RenderRecord()
 		int64_t TimeCentiseconds = static_cast<int64_t>(GameClient()->m_MapBestTimeSeconds) * 100 + static_cast<int64_t>(GameClient()->m_MapBestTimeMillis) / 10;
 		str_time(TimeCentiseconds, ETimeFormat::HOURS_CENTISECS, aTime, sizeof(aTime));
 		str_format(aBuf, sizeof(aBuf), "%s%s", GameClient()->m_MapBestTimeSeconds > 3600 ? "" : "   ", aTime);
+		AxionHud::Record(AxionHud::RECORD, {5, 75, 48 + TextRender()->TextWidth(6, aBuf), 6}, m_Width, m_Height);
 		TextRender()->Text(53, 75, 6, aBuf, -1.0f);
 	}
 
@@ -2222,6 +2297,7 @@ void CHud::RenderRecord()
 			int64_t TimeCentiseconds = static_cast<int64_t>(PlayerTimeSeconds) * 100 + static_cast<int64_t>(PlayerTimeMillis) / 10;
 			str_time(TimeCentiseconds, ETimeFormat::HOURS_CENTISECS, aTime, sizeof(aTime));
 			str_format(aBuf, sizeof(aBuf), "%s%s", PlayerTimeSeconds > 3600 ? "" : "   ", aTime);
+			AxionHud::Record(AxionHud::RECORD, {5, 82, 48 + TextRender()->TextWidth(6, aBuf), 6}, m_Width, m_Height);
 			TextRender()->Text(53, 82, 6, aBuf, -1.0f);
 		}
 	}
@@ -2235,6 +2311,7 @@ void CHud::RenderRecord()
 			char aTime[32];
 			str_time_float(PlayerRecord, ETimeFormat::HOURS_CENTISECS, aTime, sizeof(aTime));
 			str_format(aBuf, sizeof(aBuf), "%s%s", PlayerRecord > 3600 ? "" : "   ", aTime);
+			AxionHud::Record(AxionHud::RECORD, {5, 82, 48 + TextRender()->TextWidth(6, aBuf), 6}, m_Width, m_Height);
 			TextRender()->Text(53, 82, 6, aBuf, -1.0f);
 		}
 	}

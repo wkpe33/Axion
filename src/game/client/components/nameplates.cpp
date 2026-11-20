@@ -843,6 +843,10 @@ public:
 
 void CNamePlates::RenderNamePlateGame(vec2 Position, const CNetObj_PlayerInfo *pPlayerInfo, float Alpha)
 {
+	const auto &Practice = GameClient()->m_FastPractice;
+	if(Practice.ForcePredictPlayers() && !Practice.IsPracticeParticipant(pPlayerInfo->m_ClientId))
+		return;
+
 	// Get screen edges to avoid rendering offscreen
 	CScreenRect ScreenRect = Graphics()->GetScreen();
 

@@ -1,3 +1,8 @@
+Axion is an altered build of [TaterClient/TClient](https://github.com/TaterClient/TClient).
+See [BUILD.md](BUILD.md), [ARCHITECTURE.md](ARCHITECTURE.md), and
+[PERFORMANCE.md](PERFORMANCE.md) for build instructions and verification.
+The upstream README follows.
+
 [![DDraceNetwork](docs/assets/TClient_Logo_Horizontal.svg)](https://tclient.app) 
 
 [![Build status](https://github.com/TaterClient/TClient/workflows/Build/badge.svg)](https://github.com/TaterClient/TClient/actions/workflows/build.yml)

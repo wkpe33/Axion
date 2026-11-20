@@ -142,6 +142,8 @@ protected:
 
 	int m_MenuPage;
 	int m_GamePage;
+	int m_AxionMiscPanel = 0;
+	bool m_CheatCheckPanel = false;
 	int m_Popup;
 	bool m_ShowStart;
 	bool m_MenuActive;
@@ -198,6 +200,7 @@ protected:
 		int m_Total;
 	};
 	CLoadingState m_LoadingState;
+	bool m_StartupLoading = true;
 
 	//
 	char m_aMessageTopic[512];
@@ -497,6 +500,7 @@ protected:
 	// found in menus_ingame.cpp
 	STextContainerIndex m_MotdTextContainerIndex;
 	void RenderGame(CUIRect MainView);
+	void RenderCheatCheckMenu(CUIRect View);
 	void PopupConfirmDisconnect();
 	void PopupConfirmDisconnectDummy();
 	void PopupConfirmDiscardTouchControlsChanges();
@@ -522,6 +526,10 @@ protected:
 	bool m_ServerBrowserShouldRevealSelection;
 	std::vector<CUIElement *> m_avpServerBrowserUiElements[IServerBrowser::NUM_TYPES];
 	void RenderServerbrowserServerList(CUIRect View, bool &WasListboxItemActivated);
+	NETADDR m_UdpPopupServer{};
+	SPopupMenuId m_UdpPopupId;
+	static CUi::EPopupMenuFunctionResult PopupUdpPortTest(void *pContext, CUIRect View, bool Active);
+	void RenderServerbrowserUdpTest(CUIRect View);
 	void RenderServerbrowserStatusBox(CUIRect StatusBox, bool WasListboxItemActivated);
 	void Connect(const char *pAddress);
 	void PopupConfirmSwitchServer();
@@ -579,6 +587,7 @@ protected:
 
 	// found in menus_settings_credits.cpp
 	void RenderSettingsCredits(CUIRect MainView);
+	void RenderSettingsAxion(CUIRect MainView);
 
 	// found in menus_settings_ddnet.cpp
 	void RenderSettingsDDNet(CUIRect MainView);
@@ -720,7 +729,7 @@ public:
 		SETTINGS_TCLIENT, // TClient
 		SETTINGS_PROFILES, // TClient
 		SETTINGS_CONFIGS, // TClient
-		SETTINGS_CREDITS,
+		SETTINGS_AXION, // Preserve existing settings page numbers.
 		SETTINGS_LENGTH,
 	};
 

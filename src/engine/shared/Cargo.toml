@@ -10,7 +10,11 @@ license = "Zlib"
 crate-type = ["rlib", "staticlib"]
 path = "lib.rs"
 
+[features]
+vulkan-presentation = ["dep:ash"]
+
 [dependencies]
+ash = { version = "0.38", default-features = false, features = ["std"], optional = true }
 ddnet-base = { path = "../../base" }
 ddnet-engine = { path = ".." }
 

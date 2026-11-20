@@ -1,7 +1,10 @@
+#include <game/client/components/axion_hud_layout.h>
 /* (c) Magnus Auvinen. See licence.txt in the root of the distribution for more information. */
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 
 #include "chat.h"
+#include <engine/shared/axion_cursor.h>
+#include <engine/shared/axion_chat_reply.h>
 
 #include <base/color.h>
 #include <base/io.h>
@@ -11,6 +14,7 @@
 
 #include <engine/editor.h>
 #include <engine/external/regex.h>
+#include <engine/font_icons.h>
 #include <engine/graphics.h>
 #include <engine/keys.h>
 #include <engine/shared/config.h>
@@ -22,6 +26,7 @@
 
 #include <game/client/animstate.h>
 #include <game/client/components/censor.h>
+#include <game/client/ui_scrollregion.h>
 #include <game/client/components/scoreboard.h>
 #include <game/client/components/skins.h>
 #include <game/client/components/sounds.h>
@@ -39,8 +44,10 @@ CChat::CLine::CLine()
 
 void CChat::CLine::Reset(CChat &This)
 {
+	if(This.m_SelectedLine >= 0 && &This.m_aLines[This.m_SelectedLine] == this) This.ResetHistoryInteraction();
 	This.TextRender()->DeleteTextContainer(m_TextContainerIndex);
 	This.Graphics()->DeleteQuadContainer(m_QuadContainerIndex);
+	m_vGlyphs.clear(); m_SelectableText.clear(); m_Visible = false; m_aReplyName[0] = 0;
 	m_Initialized = false;
 	m_Time = 0;
 	m_aText[0] = '\0';
@@ -128,12 +135,15 @@ void CChat::ClearLines()
 
 void CChat::OnWindowResize()
 {
+	ResetHistoryInteraction();
 	RebuildChat();
 }
 
 void CChat::Reset()
 {
 	ClearLines();
+	ResetHistoryInteraction();
+	m_HistoryScroll = 0;
 
 	m_Show = false;
 	m_CompletionUsed = false;
@@ -252,10 +262,231 @@ void CChat::OnInit()
 	Console()->Chain("cl_chat_width", ConchainChatWidth, this);
 }
 
+static int TranslateBackendIndex()
+{
+	for(size_t i = 0; i < g_aTranslateBackends.size(); ++i)
+		if(str_comp_nocase(g_Config.m_TcTranslateBackend, g_aTranslateBackends[i].m_pValue) == 0)
+			return (int)i;
+	return 0;
+}
+
+static float TranslateSettingsPopupHeight(bool NeedsEndpointConfig)
+{
+	constexpr float RowHeight = 20.0f;
+	constexpr float Gap = 3.0f;
+	constexpr float BottomPadding = 12.0f;
+	constexpr float RowsWithGap = RowHeight + Gap;
+	float Height = RowsWithGap * 6 + Gap + RowHeight;
+	if(NeedsEndpointConfig)
+		Height += RowHeight + Gap + RowHeight;
+	return Height + BottomPadding;
+}
+
+void CChat::OpenTranslateSettingsPopup()
+{
+	const float PopupWidth = 330.0f;
+	const float PopupHeight = TranslateSettingsPopupHeight(true);
+	const float PopupX = std::clamp(m_TranslateButtonUiRect.x + m_TranslateButtonUiRect.w / 2.0f - PopupWidth / 2.0f, 0.0f, std::max(0.0f, Ui()->Screen()->w - PopupWidth));
+	const float PopupY = std::max(0.0f, m_TranslateButtonUiRect.y - PopupHeight - 4.0f);
+	Ui()->DoPopupMenu(&m_TranslateSettingsPopupId, PopupX, PopupY, PopupWidth, PopupHeight, this, PopupTranslateSettings);
+}
+
+CUi::EPopupMenuFunctionResult CChat::PopupTranslateSettings(void *pContext, CUIRect View, bool Active)
+{
+	CChat *pChat = static_cast<CChat *>(pContext);
+	(void)Active;
+
+	static const std::vector<STranslateLanguage> s_vSourceLanguages = {
+		{"Auto", "auto"}, {"Russian", "ru"}, {"English", "en"}, {"German", "de"},
+		{"French", "fr"}, {"Spanish", "es"}, {"Polish", "pl"}, {"Chinese", "zh"},
+		{"Portuguese", "pt"}, {"Turkish", "tr"},
+	};
+	static CUi::SDropDownState s_IncomingSourceState;
+	static CUi::SDropDownState s_IncomingTargetState;
+	static CUi::SDropDownState s_OutgoingSourceState;
+	static CUi::SDropDownState s_OutgoingTargetState;
+	static CUi::SDropDownState s_BackendState;
+	static CScrollRegion s_IncomingSourceScroll;
+	static CScrollRegion s_IncomingTargetScroll;
+	static CScrollRegion s_OutgoingSourceScroll;
+	static CScrollRegion s_OutgoingTargetScroll;
+	static CScrollRegion s_BackendScroll;
+	s_IncomingSourceState.m_SelectionPopupContext.m_pScrollRegion = &s_IncomingSourceScroll;
+	s_IncomingTargetState.m_SelectionPopupContext.m_pScrollRegion = &s_IncomingTargetScroll;
+	s_OutgoingSourceState.m_SelectionPopupContext.m_pScrollRegion = &s_OutgoingSourceScroll;
+	s_OutgoingTargetState.m_SelectionPopupContext.m_pScrollRegion = &s_OutgoingTargetScroll;
+	s_BackendState.m_SelectionPopupContext.m_pScrollRegion = &s_BackendScroll;
+
+	std::vector<const char *> BackendNames;
+	for(const STranslateBackendInfo &Backend : g_aTranslateBackends)
+		BackendNames.push_back(Backend.m_pName);
+	int BackendIndex = TranslateBackendIndex();
+	static std::vector<const char *> SourceNames;
+
+	const STranslateBackendInfo &Backend = g_aTranslateBackends[BackendIndex];
+	std::vector<const char *> TargetNames;
+	for(const STranslateLanguage &Language : Backend.m_vLanguages)
+		TargetNames.push_back(Language.m_pName);
+	SourceNames.clear();
+	for(const STranslateLanguage &Language : s_vSourceLanguages)
+		SourceNames.push_back(Language.m_pName);
+
+	const float RowHeight = 20.0f;
+	const float Gap = 3.0f;
+	const float FontSize = 11.0f;
+	CUIRect Row;
+	View.HSplitTop(RowHeight, &Row, &View);
+	if(pChat->GameClient()->m_Menus.DoButton_CheckBox(&pChat->m_TranslateMessageButtonToggle, Localize("Message button"), g_Config.m_AxTranslateMessageButton, &Row))
+		g_Config.m_AxTranslateMessageButton ^= 1;
+	View.HSplitTop(Gap, nullptr, &View);
+
+	auto RenderLanguagePair = [&](char *pSource, size_t SourceSize, char *pTarget, size_t TargetSize, CUi::SDropDownState &SourceState, CUi::SDropDownState &TargetState) {
+		CUIRect Pair, Source, Arrow, Target;
+		View.HSplitTop(RowHeight, &Pair, &View);
+		Pair.VSplitLeft((Pair.w - 20.0f) / 2.0f, &Source, &Pair);
+		Pair.VSplitLeft(20.0f, &Arrow, &Target);
+		pChat->Ui()->DoLabel(&Arrow, "→", FontSize, TEXTALIGN_MC);
+		const int SourceIndex = TranslateLanguageIndex(s_vSourceLanguages, pSource);
+		const int NewSourceIndex = pChat->Ui()->DoDropDown(&Source, SourceIndex, SourceNames.data(), SourceNames.size(), SourceState);
+		if(NewSourceIndex != SourceIndex)
+			str_copy(pSource, s_vSourceLanguages[NewSourceIndex].m_pCode, SourceSize);
+		const int TargetIndex = TranslateLanguageIndex(Backend.m_vLanguages, pTarget);
+		const int NewTargetIndex = pChat->Ui()->DoDropDown(&Target, TargetIndex, TargetNames.data(), TargetNames.size(), TargetState);
+		if(NewTargetIndex != TargetIndex)
+			str_copy(pTarget, Backend.m_vLanguages[NewTargetIndex].m_pCode, TargetSize);
+	};
+
+	RenderLanguagePair(g_Config.m_AxTranslateIncomingSource, sizeof(g_Config.m_AxTranslateIncomingSource),
+		g_Config.m_TcTranslateTarget, sizeof(g_Config.m_TcTranslateTarget), s_IncomingSourceState, s_IncomingTargetState);
+	View.HSplitTop(Gap, nullptr, &View);
+	View.HSplitTop(RowHeight, &Row, &View);
+	if(pChat->GameClient()->m_Menus.DoButton_CheckBox(&pChat->m_TranslateSettingsOutgoingButton, Localize("Yours"), g_Config.m_TcTranslateOutgoing, &Row))
+		g_Config.m_TcTranslateOutgoing ^= 1;
+	View.HSplitTop(Gap, nullptr, &View);
+	RenderLanguagePair(g_Config.m_AxTranslateOutgoingSource, sizeof(g_Config.m_AxTranslateOutgoingSource),
+		g_Config.m_TcTranslateOutgoingTarget, sizeof(g_Config.m_TcTranslateOutgoingTarget), s_OutgoingSourceState, s_OutgoingTargetState);
+	View.HSplitTop(Gap, nullptr, &View);
+	View.HSplitTop(RowHeight, &Row, &View);
+	if(pChat->GameClient()->m_Menus.DoButton_CheckBox(&pChat->m_TranslateSettingsPunctuationButton, Localize("Remove apostrophes"), g_Config.m_AxTranslateOutgoingStripPunctuation, &Row))
+		g_Config.m_AxTranslateOutgoingStripPunctuation ^= 1;
+	View.HSplitTop(Gap, nullptr, &View);
+	const STranslateBackendInfo &BackendConfig = g_aTranslateBackends[BackendIndex];
+	if(BackendConfig.m_NeedsEndpointConfig)
+	{
+		static CLineInput s_TranslateEndpoint(g_Config.m_TcTranslateEndpoint, sizeof(g_Config.m_TcTranslateEndpoint));
+		static CLineInput s_TranslateKey(g_Config.m_TcTranslateKey, sizeof(g_Config.m_TcTranslateKey));
+		const bool IsDeepLBackend = str_comp_nocase(BackendConfig.m_pValue, "deepl") == 0;
+		s_TranslateEndpoint.SetEmptyText(IsDeepLBackend ? "https://api-free.deepl.com/v2/translate" : "http://localhost:5000/translate");
+		s_TranslateKey.SetEmptyText(IsDeepLBackend ? "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx:fx" : "optional API key");
+		View.HSplitTop(RowHeight, &Row, &View);
+		CUIRect Label;
+		Row.VSplitLeft(90.0f, &Label, &Row);
+		pChat->Ui()->DoLabel(&Label, Localize("Endpoint"), FontSize, TEXTALIGN_ML);
+		pChat->Ui()->DoEditBox(&s_TranslateEndpoint, &Row, FontSize);
+		View.HSplitTop(Gap, nullptr, &View);
+		View.HSplitTop(RowHeight, &Row, &View);
+		Row.VSplitLeft(90.0f, &Label, &Row);
+		pChat->Ui()->DoLabel(&Label, Localize("API key"), FontSize, TEXTALIGN_ML);
+		pChat->Ui()->DoEditBox(&s_TranslateKey, &Row, FontSize);
+		View.HSplitTop(Gap, nullptr, &View);
+		pChat->m_TranslateSettingsInputActive = s_TranslateEndpoint.IsActive() || s_TranslateKey.IsActive() ||
+			pChat->Ui()->ActiveItem() == &s_TranslateEndpoint || pChat->Ui()->ActiveItem() == &s_TranslateKey;
+	}
+	else
+		pChat->m_TranslateSettingsInputActive = false;
+	View.HSplitTop(RowHeight, &Row, &View);
+	Row.VSplitLeft(90.0f, nullptr, &Row);
+	const int NewBackendIndex = pChat->Ui()->DoDropDown(&Row, BackendIndex, BackendNames.data(), BackendNames.size(), s_BackendState);
+	if(NewBackendIndex != BackendIndex)
+		str_copy(g_Config.m_TcTranslateBackend, g_aTranslateBackends[NewBackendIndex].m_pValue);
+
+	return CUi::POPUP_KEEP_OPEN;
+}
+
+void CChat::RenderTranslateSettingsButton(const CUIRect &ButtonRect)
+{
+	const bool Hovered = Ui()->MouseHovered(&ButtonRect);
+	const bool Active = g_Config.m_TcTranslateOutgoing;
+	const bool Open = Ui()->IsPopupOpen(&m_TranslateSettingsPopupId);
+	const ColorRGBA IconColor = Open ? ColorRGBA(0.5f, 0.65f, 1.0f, 1.0f) :
+		(Active ? ColorRGBA(0.35f, 0.85f, 0.45f, 1.0f) : ColorRGBA(1.0f, 1.0f, 1.0f, Hovered ? 1.0f : 0.8f));
+	const float IconSize = ButtonRect.h * 1.65f;
+	TextRender()->SetFontPreset(EFontPreset::ICON_FONT);
+	TextRender()->SetRenderFlags(ETextRenderFlags::TEXT_RENDER_FLAG_ONLY_ADVANCE_WIDTH |
+		ETextRenderFlags::TEXT_RENDER_FLAG_NO_X_BEARING |
+		ETextRenderFlags::TEXT_RENDER_FLAG_NO_Y_BEARING |
+		ETextRenderFlags::TEXT_RENDER_FLAG_NO_PIXEL_ALIGNMENT |
+		ETextRenderFlags::TEXT_RENDER_FLAG_NO_OVERSIZE);
+	TextRender()->TextColor(IconColor);
+	Ui()->DoLabel(&ButtonRect, FontIcon::EARTH_AMERICAS, IconSize, TEXTALIGN_MC);
+	TextRender()->SetRenderFlags(0);
+	TextRender()->SetFontPreset(EFontPreset::DEFAULT_FONT);
+	TextRender()->TextColor(TextRender()->DefaultTextColor());
+}
+
 bool CChat::OnInput(const IInput::CEvent &Event)
 {
 	if(m_Mode == MODE_NONE)
 		return false;
+	const bool PopupOpen = Ui()->IsPopupOpen(&m_TranslateSettingsPopupId);
+	if(PopupOpen && (Event.m_Flags & IInput::FLAG_PRESS) && Event.m_Key == KEY_ESCAPE)
+	{
+		Ui()->ClosePopupMenus();
+		m_TranslateSettingsInputActive = false;
+		return true;
+	}
+	if(m_TranslateButtonRectValid && Event.m_Key == KEY_MOUSE_1)
+	{
+		const bool Inside = m_TranslateButtonRect.Inside(HistoryMouse());
+		if(Event.m_Flags & IInput::FLAG_PRESS)
+		{
+			m_TranslateButtonPressed = Inside;
+			if(Inside)
+				return true;
+		}
+		if((Event.m_Flags & IInput::FLAG_RELEASE) && m_TranslateButtonPressed)
+		{
+			m_TranslateButtonPressed = false;
+			if(Inside)
+			{
+				if(Input()->ShiftIsPressed())
+					GameClient()->m_Translate.ToggleShiftClick();
+				else if(PopupOpen)
+					Ui()->ClosePopupMenus();
+				else
+				{
+					m_Input.Deactivate();
+					OpenTranslateSettingsPopup();
+				}
+			}
+			return true;
+		}
+	}
+	if(PopupOpen)
+	{
+		Ui()->OnInput(Event);
+		return true;
+	}
+	if((Event.m_Flags & IInput::FLAG_PRESS) && Event.m_Key == KEY_F && Input()->ModifierIsPressed())
+	{
+		SetHistorySearch(!m_SearchActive);
+		return true;
+	}
+	if(m_SearchActive)
+	{
+		if((Event.m_Flags & IInput::FLAG_PRESS) && Event.m_Key == KEY_ESCAPE)
+			SetHistorySearch(false);
+		else if(Event.m_Key == KEY_MOUSE_WHEEL_UP || Event.m_Key == KEY_MOUSE_WHEEL_DOWN)
+			HistoryInput(Event);
+		else if(Event.m_Key != KEY_RETURN && Event.m_Key != KEY_KP_ENTER)
+		{
+			m_SearchInput.ProcessInput(Event);
+			if(m_SearchInput.WasChanged())
+				m_HistoryScroll = 0;
+		}
+		return true;
+	}
+	if(HistoryInput(Event)) return true;
 
 	if(Event.m_Flags & IInput::FLAG_PRESS && Event.m_Key == KEY_ESCAPE)
 	{
@@ -550,6 +781,12 @@ void CChat::EnableMode(int Team)
 
 void CChat::DisableMode()
 {
+	SetHistorySearch(false);
+	if(Ui()->IsPopupOpen(&m_TranslateSettingsPopupId))
+		Ui()->ClosePopupMenus();
+	m_TranslateButtonRectValid = m_TranslateButtonPressed = m_TranslateSettingsInputActive = false;
+	ResetHistoryInteraction();
+	m_HistoryScroll = 0;
 	if(m_Mode != MODE_NONE)
 	{
 		m_Mode = MODE_NONE;
@@ -792,6 +1029,7 @@ void CChat::AddLine(int ClientId, int Team, const char *pLine)
 		return;
 	}
 
+	if(m_HistoryScroll > 0) m_HistoryScroll = std::min(m_HistoryScroll + 1, MAX_LINES - 1);
 	m_CurrentLine = (m_CurrentLine + 1) % MAX_LINES;
 
 	CLine &CurrentLine = m_aLines[m_CurrentLine];
@@ -839,6 +1077,7 @@ void CChat::AddLine(int ClientId, int Team, const char *pLine)
 	else
 	{
 		const auto &LineAuthor = GameClient()->m_aClients[CurrentLine.m_ClientId];
+		str_copy(CurrentLine.m_aReplyName, LineAuthor.m_aName);
 
 		if(LineAuthor.m_Active)
 		{
@@ -918,7 +1157,7 @@ void CChat::AddLine(int ClientId, int Team, const char *pLine)
 			Client()->Notify("DDNet Chat", aBuf);
 			if(g_Config.m_SndHighlight)
 			{
-				GameClient()->m_Sounds.Play(CSounds::CHN_GUI, SOUND_CHAT_HIGHLIGHT, 1.0f);
+				GameClient()->m_Sounds.Play(CSounds::CHN_GUI, SOUND_CHAT_HIGHLIGHT, 1.0f, g_Config.m_AxHighlightBackground ? ISound::FLAG_BACKGROUND : 0);
 				m_aLastSoundPlayed[CHAT_HIGHLIGHT] = Now;
 			}
 
@@ -957,7 +1196,7 @@ void CChat::OnPrepareLines(float y)
 	float FontSize = this->FontSize();
 
 	const bool IsScoreBoardOpen = GameClient()->m_Scoreboard.IsActive() && (Graphics()->ScreenAspect() > 1.7f); // only assume scoreboard when screen ratio is widescreen(something around 16:9)
-	const bool ShowLargeArea = m_Show || (m_Mode != MODE_NONE && g_Config.m_ClShowChat == 1) || g_Config.m_ClShowChat == 2;
+	const bool ShowLargeArea = m_SearchActive || m_Show || (m_Mode != MODE_NONE && g_Config.m_ClShowChat == 1) || g_Config.m_ClShowChat == 2;
 	const bool ForceRecreate = IsScoreBoardOpen != m_PrevScoreBoardShowed || ShowLargeArea != m_PrevShowChat;
 	m_PrevScoreBoardShowed = IsScoreBoardOpen;
 	m_PrevShowChat = ShowLargeArea;
@@ -982,13 +1221,15 @@ void CChat::OnPrepareLines(float y)
 	float TextBegin = Begin + RealMsgPaddingX / 2.0f;
 	int OffsetType = IsScoreBoardOpen ? 1 : 0;
 
-	for(int i = 0; i < MAX_LINES; i++)
+	for(int i = m_HistoryScroll; i < MAX_LINES; i++)
 	{
 		CLine &Line = m_aLines[((m_CurrentLine - i) + MAX_LINES) % MAX_LINES];
 		if(!Line.m_Initialized)
 			break;
 		if(Now > Line.m_Time + 16 * time_freq() && !m_PrevShowChat)
 			break;
+		if(!MatchesHistorySearch(Line))
+			continue;
 
 		if(Line.m_TextContainerIndex.Valid() && !ForceRecreate)
 			continue;
@@ -1033,7 +1274,7 @@ void CChat::OnPrepareLines(float y)
 		const char *pTranslatedError = nullptr;
 		const char *pTranslatedText = nullptr;
 		const char *pTranslatedLanguage = nullptr;
-		if(Line.m_pTranslateResponse != nullptr && Line.m_pTranslateResponse->m_Text[0])
+		if(Line.m_pTranslateResponse != nullptr && Line.m_pTranslateResponse->m_Shown && Line.m_pTranslateResponse->m_Text[0])
 		{
 			// If hidden and there is translated text
 			if(pText != Line.m_aText)
@@ -1131,8 +1372,11 @@ void CChat::OnPrepareLines(float y)
 		int CurRenderFlags = TextRender()->GetRenderFlags();
 		TextRender()->SetRenderFlags(CurRenderFlags | ETextRenderFlags::TEXT_RENDER_FLAG_NO_AUTOMATIC_QUAD_UPLOAD);
 
+		Line.m_vGlyphs.clear(); Line.m_SelectableText.clear(); Line.m_CollectPart = 0;
 		// reset the cursor
 		CTextCursor LineCursor;
+		LineCursor.m_pGlyphCallback = CollectHistoryGlyph;
+		LineCursor.m_pGlyphCallbackData = &Line;
 		LineCursor.SetPosition(vec2(TextBegin, Line.m_TextYOffset));
 		LineCursor.m_FontSize = FontSize;
 		LineCursor.m_LineWidth = LineWidth;
@@ -1174,7 +1418,9 @@ void CChat::OnPrepareLines(float y)
 
 		TextRender()->TextColor(NameColor);
 		TextRender()->CreateOrAppendTextContainer(Line.m_TextContainerIndex, &LineCursor, aClientId);
+		Line.m_CollectPart = 1;
 		TextRender()->CreateOrAppendTextContainer(Line.m_TextContainerIndex, &LineCursor, Line.m_aName);
+		Line.m_CollectPart = 0;
 
 		if(Line.m_TimesRepeated > 0)
 		{
@@ -1203,6 +1449,7 @@ void CChat::OnPrepareLines(float y)
 			Color = color_cast<ColorRGBA>(ColorHSLA(g_Config.m_ClMessageColor));
 		TextRender()->TextColor(Color);
 
+		Line.m_CollectPart = 2;
 		CTextCursor AppendCursor = LineCursor;
 		AppendCursor.m_LongestLineWidth = 0.0f;
 		if(!IsScoreBoardOpen && !g_Config.m_ClChatOld)
@@ -1282,6 +1529,10 @@ void CChat::OnPrepareLines(float y)
 
 void CChat::OnRender()
 {
+	m_TranslateButtonRectValid = false;
+	m_TranslateHoverLine = -1;
+	for(auto &Line : m_aLines) Line.m_Visible = false;
+	if(!IsActive() || GameClient()->m_Menus.IsActive()) ResetHistoryInteraction();
 	if(Client()->State() != IClient::STATE_ONLINE && Client()->State() != IClient::STATE_DEMOPLAYBACK)
 		return;
 
@@ -1303,15 +1554,29 @@ void CChat::OnRender()
 	const float Height = 300.0f;
 	const float Width = Height * Graphics()->ScreenAspect();
 	Graphics()->MapScreenToSize(Width, Height);
+	AxionHud::CScope Layout(Graphics(), AxionHud::CHAT);
 
 	float x = 5.0f;
 
 	// TClient
-	float y = 300.0f - (20.0f * FontSize() / 6.0f + (g_Config.m_TcStatusBar ? g_Config.m_TcStatusBarHeight : 0.0f));
+	float y = 300.0f - (20.0f * FontSize() / 6.0f + (!g_Config.m_AxNewHud && g_Config.m_TcStatusBar ? g_Config.m_TcStatusBarHeight : 0.0f));
 	// float y = 300.0f - 20.0f * FontSize() / 6.0f;
 
+	if(IsActive())
+		AxionHud::Record(AxionHud::CHAT, {x, y, std::min<float>(g_Config.m_ClChatWidth, Width - x), FontSize() * 2}, Width, Height);
 	float ScaledFontSize = FontSize() * (8.0f / 6.0f);
-	if(m_Mode != MODE_NONE)
+	if(m_SearchActive)
+	{
+		CTextCursor SearchCursor;
+		SearchCursor.SetPosition(vec2(x, y));
+		SearchCursor.m_FontSize = ScaledFontSize;
+		TextRender()->TextEx(&SearchCursor, Localize("Search"));
+		TextRender()->TextEx(&SearchCursor, ": ");
+		const CUIRect Field = {SearchCursor.m_X, y, std::max(0.0f, Width - SearchCursor.m_X - 5), ScaledFontSize};
+		m_SearchInput.Activate(EInputPriority::CHAT);
+		m_SearchInput.Render(&Field, ScaledFontSize, TEXTALIGN_TL, true, Field.w, 0.0f);
+	}
+	else if(m_Mode != MODE_NONE)
 	{
 		// render chat input
 		CTextCursor InputCursor;
@@ -1340,7 +1605,8 @@ void CChat::OnRender()
 		float ScrollOffset = m_Input.GetScrollOffset();
 		float ScrollOffsetChange = m_Input.GetScrollOffsetChange();
 
-		m_Input.Activate(EInputPriority::CHAT); // Ensure that the input is active
+		if(!Ui()->IsPopupOpen(&m_TranslateSettingsPopupId))
+			m_Input.Activate(EInputPriority::CHAT);
 		const CUIRect InputCursorRect = {InputCursor.m_X, InputCursor.m_Y - ScrollOffset, 0.0f, 0.0f};
 		const bool WasChanged = m_Input.WasChanged();
 		const bool WasCursorChanged = m_Input.WasCursorChanged();
@@ -1348,6 +1614,17 @@ void CChat::OnRender()
 		const STextBoundingBox BoundingBox = m_Input.Render(&InputCursorRect, InputCursor.m_FontSize, TEXTALIGN_TL, Changed, MessageMaxWidth, 0.0f);
 
 		Graphics()->ClipDisable();
+		const float ButtonSize = std::max(12.0f, ScaledFontSize * 1.75f);
+		m_TranslateButtonRect = {std::min(ClippingRect.x + ClippingRect.w + 4.0f, Width - ButtonSize), InputCursor.m_Y, ButtonSize, ButtonSize};
+		const vec2 ChatOffset = AxionHud::Offset(AxionHud::CHAT, Width, Height);
+		const float UiScale = Ui()->Screen()->h / Height;
+		m_TranslateButtonUiRect = {(m_TranslateButtonRect.x + ChatOffset.x) * UiScale, (m_TranslateButtonRect.y + ChatOffset.y) * UiScale,
+			ButtonSize * UiScale, ButtonSize * UiScale};
+		m_TranslateButtonRectValid = true;
+		const auto ChatScreen = Graphics()->GetScreen();
+		Ui()->MapScreen();
+		RenderTranslateSettingsButton(m_TranslateButtonUiRect);
+		Graphics()->MapScreen(ChatScreen);
 
 		// Scroll up or down to keep the caret inside the clipping rect
 		const float CaretPositionY = m_Input.GetCaretPosition().y - ScrollOffsetChange;
@@ -1380,9 +1657,9 @@ void CChat::OnRender()
 	}
 
 #if defined(CONF_VIDEORECORDER)
-	if(!((g_Config.m_ClShowChat && !IVideo::Current()) || (g_Config.m_ClVideoShowChat && IVideo::Current())))
+	if(!m_SearchActive && !((g_Config.m_ClShowChat && !IVideo::Current()) || (g_Config.m_ClVideoShowChat && IVideo::Current())))
 #else
-	if(!g_Config.m_ClShowChat)
+	if(!m_SearchActive && !g_Config.m_ClShowChat)
 #endif
 		return;
 
@@ -1405,13 +1682,16 @@ void CChat::OnRender()
 		RealMsgPaddingY = 0;
 	}
 
-	for(int i = 0; i < MAX_LINES; i++)
+	for(int i = m_HistoryScroll; i < MAX_LINES; i++)
 	{
-		CLine &Line = m_aLines[((m_CurrentLine - i) + MAX_LINES) % MAX_LINES];
+		const int LineIndex = ((m_CurrentLine - i) + MAX_LINES) % MAX_LINES;
+		CLine &Line = m_aLines[LineIndex];
 		if(!Line.m_Initialized)
 			break;
 		if(Now > Line.m_Time + 16 * time_freq() && !m_PrevShowChat)
 			break;
+		if(!MatchesHistorySearch(Line))
+			continue;
 
 		y -= Line.m_aYOffset[OffsetType];
 
@@ -1420,6 +1700,23 @@ void CChat::OnRender()
 			break;
 
 		float Blend = Now > Line.m_Time + 14 * time_freq() && !m_PrevShowChat ? 1.0f - (Now - Line.m_Time - 14 * time_freq()) / (2.0f * time_freq()) : 1.0f;
+
+		if(!m_SearchActive && g_Config.m_AxTranslateMessageButton && IsActive() && !GameClient()->m_Menus.IsActive() &&
+			Line.m_ClientId >= 0 && Line.m_aName[0] && Line.m_aText[0] &&
+			Line.m_ClientId != GameClient()->m_aLocalIds[0] && Line.m_ClientId != GameClient()->m_aLocalIds[1])
+		{
+			const float Size = ScaledFontSize * 1.4f;
+			const float ChatWidth = IsScoreBoardOpen ? std::max(85.0f, ScaledFontSize * 85.0f / 6.0f) : g_Config.m_ClChatWidth;
+			const CUIRect Button = {x + ChatWidth + 2.0f, y, Size, Size};
+			const bool Hover = Button.Inside(HistoryMouse());
+			if(Hover)
+				m_TranslateHoverLine = LineIndex;
+			TextRender()->SetFontPreset(EFontPreset::ICON_FONT);
+			TextRender()->TextColor(1, 1, 1, Blend * (Hover ? 1.0f : 0.55f));
+			TextRender()->Text(Button.x, Button.y, ScaledFontSize, FontIcon::EARTH_AMERICAS);
+			TextRender()->SetFontPreset(EFontPreset::DEFAULT_FONT);
+			TextRender()->TextColor(TextRender()->DefaultTextColor());
+		}
 
 		// Draw backgrounds for messages in one batch
 		if(!g_Config.m_ClChatOld)
@@ -1453,8 +1750,24 @@ void CChat::OnRender()
 
 			const ColorRGBA TextColor = TextRender()->DefaultTextColor().WithMultipliedAlpha(Blend);
 			const ColorRGBA TextOutlineColor = TextRender()->DefaultTextOutlineColor().WithMultipliedAlpha(Blend);
-			TextRender()->RenderTextContainer(Line.m_TextContainerIndex, TextColor, TextOutlineColor, 0, (y + RealMsgPaddingY / 2.0f) - Line.m_TextYOffset);
+			Line.m_Visible = true;
+			Line.m_VisibleOffset = (y + RealMsgPaddingY / 2.0f) - Line.m_TextYOffset;
+			const auto Box = TextRender()->GetBoundingBoxTextContainer(Line.m_TextContainerIndex);
+			AxionHud::Record(AxionHud::CHAT, {x, y, std::max(Box.Right() - x + RealMsgPaddingX, FontSize()), Line.m_aYOffset[OffsetType]}, Width, Height);
+			RenderHistorySelection(Line);
+			TextRender()->RenderTextContainer(Line.m_TextContainerIndex, TextColor, TextOutlineColor, 0, Line.m_VisibleOffset);
 		}
+	}
+	RenderHistoryMenu();
+	if(IsActive() && !GameClient()->m_Menus.IsActive() && Ui()->IsPopupOpen(&m_TranslateSettingsPopupId))
+	{
+		const auto ChatScreen = Graphics()->GetScreen();
+		Ui()->StartCheck();
+		Ui()->Update();
+		Ui()->MapScreen();
+		Ui()->RenderPopupMenus();
+		Ui()->FinishCheck();
+		Graphics()->MapScreen(ChatScreen);
 	}
 }
 
@@ -1482,6 +1795,8 @@ void CChat::EnsureCoherentWidth() const
 
 void CChat::SendChat(int Team, const char *pLine)
 {
+	if(GameClient()->m_FastPractice.ConsumePracticeChatCommand(Team, pLine))
+		return;
 	// don't send empty messages
 	if(*str_utf8_skip_whitespaces(pLine) == '\0')
 		return;
@@ -1507,6 +1822,11 @@ void CChat::SendChat(int Team, const char *pLine)
 
 void CChat::SendChatQueued(const char *pLine)
 {
+	SendTranslatedChatQueued(m_Mode == MODE_ALL ? 0 : 1, pLine);
+}
+
+void CChat::SendTranslatedChatQueued(int Team, const char *pLine)
+{
 	if(!pLine || str_length(pLine) < 1)
 		return;
 
@@ -1514,7 +1834,7 @@ void CChat::SendChatQueued(const char *pLine)
 
 	if(m_LastChatSend + time_freq() < time())
 	{
-		SendChat(m_Mode == MODE_ALL ? 0 : 1, pLine);
+		SendChat(Team, pLine);
 		AddEntry = true;
 	}
 	else if(m_PendingChatCounter < 3)
@@ -1527,7 +1847,313 @@ void CChat::SendChatQueued(const char *pLine)
 	{
 		const int Length = str_length(pLine);
 		CHistoryEntry *pEntry = m_History.Allocate(sizeof(CHistoryEntry) + Length);
-		pEntry->m_Team = m_Mode == MODE_ALL ? 0 : 1;
+		pEntry->m_Team = Team;
 		str_copy(pEntry->m_aText, pLine, Length + 1);
+	}
+}
+
+// Chat history hit geometry is collected only when its existing text cache is built.
+void CChat::CollectHistoryGlyph(void *pData, int Codepoint, const STextBoundingBox &Rect)
+{
+	auto &Line = *static_cast<CLine *>(pData);
+	char aUtf8[4];
+	const int Size = str_utf8_encode(aUtf8, Codepoint);
+	if(Size <= 0)
+		return;
+	const int Start = Line.m_SelectableText.size();
+	Line.m_SelectableText.append(aUtf8, Size);
+	Line.m_vGlyphs.push_back({{Rect.m_X, Rect.m_Y, Rect.m_W, Rect.m_H}, Start, Start + Size, Codepoint, Line.m_CollectPart});
+}
+vec2 CChat::HistoryMouse() const
+{
+	const vec2 Canvas(300 * Graphics()->ScreenAspect(), 300);
+	return AxionCursorForCanvas(Ui()->UpdatedMousePos(), vec2(Graphics()->WindowWidth(), Graphics()->WindowHeight()), Canvas) - AxionHud::Offset(AxionHud::CHAT, Canvas.x, Canvas.y);
+}
+void CChat::SetHistorySearch(bool Active)
+{
+	if(m_SearchActive == Active)
+		return;
+	m_SearchActive = Active;
+	m_HistoryScroll = 0;
+	ResetHistoryInteraction();
+	if(Active)
+	{
+		m_Input.Deactivate();
+		m_SearchInput.Clear();
+		m_SearchInput.Activate(EInputPriority::CHAT);
+	}
+	else
+		m_SearchInput.Deactivate();
+}
+
+bool CChat::MatchesHistorySearch(const CLine &Line) const
+{
+	if(!m_SearchActive || m_SearchInput.IsEmpty())
+		return true;
+	const char *pQuery = m_SearchInput.GetString();
+	return str_utf8_find_nocase(Line.m_aName, pQuery) || str_utf8_find_nocase(Line.m_aText, pQuery);
+}
+
+void CChat::ResetHistoryInteraction()
+{
+	m_SelectedLine = -1;
+	m_SelectionAnchor = m_SelectionEnd = 0;
+	m_HistoryDragging = false;
+	m_HistoryMenu = 0;
+}
+void CChat::CopyHistorySelection()
+{
+	if(m_SelectedLine < 0)
+		return;
+	const auto &Line = m_aLines[m_SelectedLine];
+	if(Line.m_Time != m_SelectedTime)
+	{
+		ResetHistoryInteraction();
+		return;
+	}
+	const int Begin = std::min(m_SelectionAnchor, m_SelectionEnd), End = std::max(m_SelectionAnchor, m_SelectionEnd);
+	if(Begin < End && End <= (int)Line.m_SelectableText.size())
+		Input()->SetClipboardText(Line.m_SelectableText.substr(Begin, End - Begin).c_str());
+}
+bool CChat::HistoryInput(const IInput::CEvent &Event)
+{
+	if(GameClient()->m_Menus.IsActive())
+	{
+		ResetHistoryInteraction();
+		return false;
+	}
+	const vec2 Mouse = HistoryMouse();
+	const bool Press = Event.m_Flags & IInput::FLAG_PRESS;
+	if(Press && Event.m_Key == KEY_MOUSE_1 && g_Config.m_AxTranslateMessageButton && m_TranslateHoverLine >= 0)
+	{
+		GameClient()->m_Translate.TranslateMessage(m_aLines[m_TranslateHoverLine]);
+		return true;
+	}
+	if(m_HistoryMenu)
+	{
+		if(Press && Event.m_Key == KEY_ESCAPE)
+		{
+			m_HistoryMenu = 0;
+			return true;
+		}
+		const bool MenuEnter = Event.m_Key == KEY_RETURN || Event.m_Key == KEY_KP_ENTER;
+		if(Event.m_Key == KEY_MOUSE_1 || MenuEnter)
+		{
+			if(Press)
+			{
+				if(MenuEnter || m_HistoryMenuRect.Inside(Mouse))
+				{
+					if(m_HistoryMenu == 1)
+						CopyHistorySelection();
+					else
+					{
+						const std::string Prefix = std::string(m_aHistoryReply) + ": ";
+						if(const auto Reply = AxionChatReply(m_aHistoryReply, m_Input.GetString(), m_LastReplyPrefix, MAX_CHAT_LENGTH))
+						{
+							m_Input.Set(Reply->c_str());
+							m_LastReplyPrefix = Prefix;
+						}
+						if(str_startswith(m_Input.GetString(), Prefix.c_str()))
+							m_Input.SetCursorOffset(Prefix.size());
+						m_Input.SelectNothing();
+						m_Input.Activate(EInputPriority::CHAT);
+					}
+				}
+				m_HistoryMenu = 0;
+			}
+			return true;
+		}
+		if(Event.m_Key != KEY_MOUSE_2 && Press)
+			m_HistoryMenu = 0;
+	}
+	if(Press && Event.m_Key == KEY_C && Input()->ModifierIsPressed() && m_SelectedLine >= 0 && m_SelectionAnchor != m_SelectionEnd)
+	{
+		CopyHistorySelection();
+		return true;
+	}
+	if(Press && (Event.m_Key == KEY_MOUSE_WHEEL_UP || Event.m_Key == KEY_MOUSE_WHEEL_DOWN))
+	{
+		if(m_SearchActive && !m_SearchInput.IsEmpty())
+		{
+			const int Direction = Event.m_Key == KEY_MOUSE_WHEEL_UP ? 1 : -1;
+			for(int i = m_HistoryScroll + Direction; i >= 0 && i < MAX_LINES; i += Direction)
+			{
+				const CLine &Line = m_aLines[(m_CurrentLine - i + MAX_LINES) % MAX_LINES];
+				if(!Line.m_Initialized)
+					break;
+				if(MatchesHistorySearch(Line))
+				{
+					m_HistoryScroll = i;
+					break;
+				}
+			}
+			return true;
+		}
+		int Count = 0;
+		for(const auto &Line : m_aLines)
+			Count += Line.m_Initialized;
+		m_HistoryScroll = std::clamp(m_HistoryScroll + (Event.m_Key == KEY_MOUSE_WHEEL_UP ? 2 : -2), 0, std::max(0, Count - 1));
+		m_HistoryMenu = 0;
+		m_HistoryDragging = false;
+		return true;
+	}
+	int HitLine = -1, HitGlyph = -1;
+	for(int i = 0; i < MAX_LINES; ++i)
+	{
+		const auto &Line = m_aLines[i];
+		if(!Line.m_Visible)
+			continue;
+		for(int j = 0; j < (int)Line.m_vGlyphs.size(); ++j)
+		{
+			CUIRect Rect = Line.m_vGlyphs[j].m_Rect;
+			Rect.y += Line.m_VisibleOffset;
+			if(Rect.w > 0 && Rect.Inside(Mouse))
+			{
+				HitLine = i;
+				HitGlyph = j;
+				break;
+			}
+		}
+		if(HitLine >= 0)
+			break;
+	}
+	if(Press && Event.m_Key == KEY_MOUSE_2)
+	{
+		m_HistoryMenu = 0;
+		if(HitLine >= 0)
+		{
+			if(Input()->ShiftIsPressed())
+			{
+				GameClient()->m_Translate.TranslateMessage(m_aLines[HitLine]);
+				return true;
+			}
+			const auto &Line = m_aLines[HitLine];
+			const auto &Glyph = Line.m_vGlyphs[HitGlyph];
+			const int Begin = std::min(m_SelectionAnchor, m_SelectionEnd), End = std::max(m_SelectionAnchor, m_SelectionEnd);
+			if(HitLine == m_SelectedLine && Line.m_Time == m_SelectedTime && Glyph.m_Start < End && Glyph.m_End > Begin)
+				m_HistoryMenu = 1;
+			else if(Glyph.m_Part == 1 && Line.m_aReplyName[0])
+			{
+				m_HistoryMenu = 2;
+				str_copy(m_aHistoryReply, Line.m_aReplyName);
+			}
+			if(m_HistoryMenu)
+			{
+				const float W = 300 * Graphics()->ScreenAspect();
+				const auto Origin = -AxionHud::Offset(AxionHud::CHAT, W, 300);
+				const float Height = m_HistoryMenu == 2 ? 8.0f : 16.0f;
+				m_HistoryMenuRect = {std::clamp(Mouse.x, Origin.x, Origin.x + W - 62), std::clamp(Mouse.y, Origin.y, Origin.y + 300 - Height), 62, Height};
+			}
+		}
+		return true;
+	}
+	if(Event.m_Key == KEY_MOUSE_1)
+	{
+		if(Press)
+		{
+			if(HitLine < 0)
+			{
+				ResetHistoryInteraction();
+				return false;
+			}
+			const auto &Line = m_aLines[HitLine];
+			const auto &Glyph = Line.m_vGlyphs[HitGlyph];
+			static vec2 s_LastClickMouse;
+			const bool Double = HitLine == m_SelectedLine && time() - m_LastHistoryClick < time_freq() * 0.3f && distance(Mouse, s_LastClickMouse) < FontSize();
+			s_LastClickMouse = Mouse;
+			m_SelectedLine = HitLine;
+			m_SelectedTime = Line.m_Time;
+			m_SelectionAnchor = m_SelectionEnd = Mouse.x > Glyph.m_Rect.x + Glyph.m_Rect.w / 2 ? Glyph.m_End : Glyph.m_Start;
+			m_HistoryDragging = true;
+			m_LastHistoryClick = time();
+			if(Double)
+			{
+				const auto Boundary = [](int C) { return str_utf8_isspace(C) || C == 0 || C == '.' || C == ',' || C == ':' || C == ';' || C == '!' || C == '?' || C == '(' || C == ')' || C == '[' || C == ']' || C == '{' || C == '}'; };
+				int First = HitGlyph, Last = HitGlyph;
+				while(First > 0 && Line.m_vGlyphs[First - 1].m_Part == Glyph.m_Part && !Boundary(Line.m_vGlyphs[First - 1].m_Codepoint))
+					--First;
+				while(Last + 1 < (int)Line.m_vGlyphs.size() && Line.m_vGlyphs[Last + 1].m_Part == Glyph.m_Part && !Boundary(Line.m_vGlyphs[Last + 1].m_Codepoint))
+					++Last;
+				m_SelectionAnchor = Line.m_vGlyphs[First].m_Start;
+				m_SelectionEnd = Line.m_vGlyphs[Last].m_End;
+				m_HistoryDragging = false;
+			}
+			return true;
+		}
+		if(Event.m_Flags & IInput::FLAG_RELEASE)
+		{
+			const bool Was = m_HistoryDragging;
+			if(Was)
+				UpdateHistoryDrag();
+			m_HistoryDragging = false;
+			return Was;
+		}
+	}
+	return false;
+}
+void CChat::RenderHistorySelection(CLine &Line)
+{
+	if(!IsActive() || m_SelectedLine < 0 || &Line != &m_aLines[m_SelectedLine])
+		return;
+	if(Line.m_Time != m_SelectedTime)
+	{
+		ResetHistoryInteraction();
+		return;
+	}
+	if(m_HistoryDragging)
+		UpdateHistoryDrag();
+	const int Begin = std::min(m_SelectionAnchor, m_SelectionEnd), End = std::max(m_SelectionAnchor, m_SelectionEnd);
+	Graphics()->TextureClear();
+	Graphics()->QuadsBegin();
+	Graphics()->SetColor(0.4f, 0.5f, 0.65f, 0.3f);
+	for(const auto &Glyph : Line.m_vGlyphs)
+		if(Glyph.m_Start < End && Glyph.m_End > Begin && Glyph.m_Rect.w > 0)
+		{
+			const auto &R = Glyph.m_Rect;
+			IGraphics::CQuadItem Quad(R.x, R.y + Line.m_VisibleOffset, R.w, R.h);
+			Graphics()->QuadsDrawTL(&Quad, 1);
+		}
+	Graphics()->QuadsEnd();
+	Graphics()->SetColor(1, 1, 1, 1);
+}
+void CChat::RenderHistoryMenu()
+{
+	if(!m_HistoryMenu || !IsActive())
+		return;
+	m_HistoryMenuRect.Draw(ColorRGBA(0.35f, 0.37f, 0.4f, 1), IGraphics::CORNER_ALL, 2);
+	CUIRect Inner;
+	m_HistoryMenuRect.Margin(0.4f, &Inner);
+	Inner.Draw(ColorRGBA(0.07f, 0.075f, 0.085f, 1), IGraphics::CORNER_ALL, 1.6f);
+	if(Inner.Inside(HistoryMouse()))
+		Inner.Draw(ColorRGBA(1, 1, 1, 0.08f), IGraphics::CORNER_ALL, 1.6f);
+	const auto Color = TextRender()->GetTextColor();
+	TextRender()->TextColor(0.95f, 0.95f, 0.95f, 1);
+	Ui()->DoLabel(&Inner, m_HistoryMenu == 1 ? Localize("Copy") : Localize("Reply"), m_HistoryMenu == 2 ? 5.5f : 7.0f, TEXTALIGN_MC);
+	TextRender()->TextColor(Color);
+}
+
+void CChat::UpdateHistoryDrag()
+{
+	if(m_SelectedLine < 0)
+		return;
+	const auto &Line = m_aLines[m_SelectedLine];
+	if(m_HistoryDragging)
+	{
+		const auto Mouse = HistoryMouse();
+		float BestY = 1e30f, BestX = 1e30f;
+		for(const auto &Glyph : Line.m_vGlyphs)
+		{
+			const auto &R = Glyph.m_Rect;
+			if(R.w <= 0)
+				continue;
+			const float Dy = std::max(std::max(R.y + Line.m_VisibleOffset - Mouse.y, Mouse.y - (R.y + Line.m_VisibleOffset + R.h)), 0.0f);
+			const float Dx = std::max(std::max(R.x - Mouse.x, Mouse.x - (R.x + R.w)), 0.0f);
+			if(Dy < BestY || (Dy == BestY && Dx < BestX))
+			{
+				BestY = Dy;
+				BestX = Dx;
+				m_SelectionEnd = Mouse.x > R.x + R.w / 2 ? Glyph.m_End : Glyph.m_Start;
+			}
+		}
 	}
 }

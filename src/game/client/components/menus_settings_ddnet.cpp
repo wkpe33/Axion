@@ -145,6 +145,10 @@ void CMenus::RenderSettingsDDNet(CUIRect MainView)
 	GameClient()->m_Tooltips.DoToolTip(&g_Config.m_ClShowQuads, &Button, Localize("Quads are used for background decoration"));
 
 	Left.HSplitTop(20.0f, &Button, &Left);
+	if(DoButton_CheckBox(&g_Config.m_GfxHighDetail, Localize("Show detail layers"), g_Config.m_GfxHighDetail, &Button))
+		g_Config.m_GfxHighDetail ^= 1;
+
+	Left.HSplitTop(20.0f, &Button, &Left);
 	if(Ui()->DoScrollbarOption(&g_Config.m_ClDefaultZoom, &g_Config.m_ClDefaultZoom, &Button, Localize("Default zoom"), 0, 20))
 		GameClient()->m_Camera.SetZoom(CCamera::ZoomStepsToValue(g_Config.m_ClDefaultZoom - 10), g_Config.m_ClSmoothZoomTime, true);
 

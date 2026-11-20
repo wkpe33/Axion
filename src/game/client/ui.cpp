@@ -1,3 +1,4 @@
+#include <engine/shared/axion_cursor.h>
 /* (c) Magnus Auvinen. See licence.txt in the root of the distribution for more information. */
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 #include "ui.h"
@@ -182,6 +183,16 @@ void CUi::OnCursorMove(float X, float Y)
 	m_UpdatedMouseDelta += vec2(X, Y);
 }
 
+void CUi::UpdateCursor()
+{
+ const vec2 WindowSize(std::max(1, Graphics()->WindowWidth()), std::max(1, Graphics()->WindowHeight()));
+ m_UpdatedMousePos.x = std::clamp(m_UpdatedMousePos.x, 0.0f, WindowSize.x - 1);
+ m_UpdatedMousePos.y = std::clamp(m_UpdatedMousePos.y, 0.0f, WindowSize.y - 1);
+ m_MousePos = AxionCursorForCanvas(m_UpdatedMousePos, WindowSize, Screen()->Size());
+ m_MouseDelta = m_UpdatedMouseDelta;
+ m_UpdatedMouseDelta = vec2(0, 0);
+}
+
 void CUi::Update()
 {
 	const vec2 WindowSize = vec2(Graphics()->WindowWidth(), Graphics()->WindowHeight());
@@ -234,9 +245,7 @@ void CUi::Update()
 		}
 	}
 
-	m_MousePos = m_UpdatedMousePos * vec2(pScreen->w, pScreen->h) / WindowSize;
-	m_MouseDelta = m_UpdatedMouseDelta;
-	m_UpdatedMouseDelta = vec2(0.0f, 0.0f);
+	UpdateCursor();
 	m_LastMouseButtons = m_MouseButtons;
 	m_MouseButtons = m_UpdatedMouseButtons;
 	m_UpdatedMouseButtons = UpdatedMouseButtonsNext;
@@ -1562,7 +1571,10 @@ bool CUi::DoScrollbarOption(const void *pId, int *pOption, const CUIRect *pRect,
 		pRect->VSplitMid(&Label, &ScrollBar, std::min(10.0f, pRect->w * 0.05f));
 
 	const float FontSize = Label.h * CUi::ms_FontmodHeight * 0.8f;
-	DoLabel(&Label, aBuf, FontSize, TEXTALIGN_ML);
+	SLabelProperties Props;
+	Props.m_MaxWidth = Label.w;
+	Props.m_EllipsisAtEnd = true;
+	DoLabel(&Label, aBuf, FontSize, TEXTALIGN_ML, Props);
 
 	Value = pScale->ToAbsolute(DoScrollbarH(pId, &ScrollBar, pScale->ToRelative(Value, Min, Max)), Min, Max);
 	if(NoClampValue && ((Value == Min && PrevValue < Min) || (Value == Max && PrevValue > Max)))

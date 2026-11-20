@@ -824,7 +824,7 @@ endif()
 
 if(TARGET_OS STREQUAL "windows")
   set(PLATFORM_CLIENT)
-  set(PLATFORM_CLIENT_LIBS opengl32.lib winmm.lib imm32.lib)
+  set(PLATFORM_CLIENT_LIBS opengl32.lib winmm.lib imm32.lib psapi.lib)
   set(PLATFORM_LIBS)
   list(APPEND PLATFORM_LIBS shlwapi.lib) # PathIsRelativeW
   list(APPEND PLATFORM_LIBS version.lib) # GetFileVersionInfoSizeW
@@ -1048,6 +1048,7 @@ set_glob(RUST_ENGINE_SHARED GLOB_RECURSE "rs;toml" src/engine/shared
   config.rs
   lib.rs
   rust_version.rs
+  vulkan_presentation.rs
   # tidy-alphabetical-end
 )
 
@@ -1156,6 +1157,11 @@ if(CMAKE_OSX_ARCHITECTURES AND TARGET_OS STREQUAL "mac")
       message(SEND_ERROR "CMAKE_OSX_ARCHITECTURES' architecture ${arch} unknown, can't build Rust code (known: arm64, x86_64)")
     endif()
   endforeach()
+endif()
+
+if(CLIENT AND VULKAN)
+  list(APPEND CARGO_BUILD --features ddnet-engine-shared/vulkan-presentation)
+  list(APPEND CARGO_TEST --features ddnet-engine-shared/vulkan-presentation)
 endif()
 
 set(RUST_SRC
@@ -2447,6 +2453,14 @@ set_src(ENGINE_SHARED GLOB_RECURSE src/engine/shared
   compression.cpp
   compression.h
   config.cpp
+  axion_presentation_catalog.h
+  axion_invitation.h
+  axion_cursor.h
+  axion_background_presets.cpp
+  axion_background_presets.h
+  axion_chat_reply.h
+  axion_input.h
+  axion_texture_limits.h
   config.h
   config_domains.h
   config_includes.h
@@ -2744,6 +2758,8 @@ if(CLIENT)
     serverbrowser.h
     serverbrowser_http.cpp
     serverbrowser_http.h
+    udp_port_test.cpp
+    udp_port_test.h
     serverbrowser_ping_cache.cpp
     serverbrowser_ping_cache.h
     sixup_translate_system.cpp
@@ -2803,6 +2819,19 @@ if(CLIENT)
     components/freezebars.h
     components/ghost.cpp
     components/ghost.h
+    components/axion_background.h
+    components/axion_theme.h
+    components/axion_presentation.h
+    components/axion_media.cpp
+    components/axion_game_timer.h
+    components/axion_media.h
+    components/axion_hud_layout.h
+    components/axion_moving_tile_prediction.cpp
+    components/axion_moving_tile_prediction.h
+    components/fast_practice.cpp
+    components/fast_practice.h
+    components/axion_overlay.cpp
+    components/axion_overlay.h
     components/hud.cpp
     components/hud.h
     components/important_alert.cpp
@@ -3189,6 +3218,9 @@ if(CLIENT)
       PROPERTY OUTPUT_NAME ${CLIENT_EXECUTABLE}
   )
   target_link_libraries(game-client ${LIBS_CLIENT})
+  if(TARGET_OS STREQUAL "windows")
+    target_link_libraries(game-client windowsapp.lib)
+  endif()
 
   if(TARGET_OS STREQUAL "ios")
     set(IOS_INFO_PLIST "${PROJECT_BINARY_DIR}/ios-Info.plist")
@@ -3622,6 +3654,10 @@ if((GTEST_FOUND OR DOWNLOAD_GTEST) AND SERVER)
   set_src(TESTS GLOB src/test
     # tidy-alphabetical-start
     aio_test.cpp
+    axion_input_test.cpp
+    axion_config_test.cpp
+    axion_presentation_test.cpp
+    axion_theme_test.cpp
     bezier_test.cpp
     blocklist_driver_test.cpp
     bytes_be_test.cpp
@@ -3671,6 +3707,7 @@ if((GTEST_FOUND OR DOWNLOAD_GTEST) AND SERVER)
     time_test.cpp
     timestamp_test.cpp
     unix_test.cpp
+    udp_port_test.cpp
     uuid_test.cpp
     vmath_test.cpp
     windows_test.cpp
@@ -3687,6 +3724,8 @@ if((GTEST_FOUND OR DOWNLOAD_GTEST) AND SERVER)
     src/engine/client/serverbrowser_ping_cache.cpp
     src/engine/client/serverbrowser_ping_cache.h
     src/engine/client/sqlite.cpp
+    src/engine/client/udp_port_test.cpp
+    src/engine/client/udp_port_test.h
     src/game/client/components/censor.cpp
     src/game/client/components/censor.h
     # tidy-alphabetical-end
@@ -3706,6 +3745,10 @@ if((GTEST_FOUND OR DOWNLOAD_GTEST) AND SERVER)
     ${DEPS}
   )
   target_link_libraries(${TARGET_TESTRUNNER} ${PNG_LIBRARIES} ${GTEST_LIBRARIES} ${LIBS_SERVER})
+  if(TARGET_OS STREQUAL "windows")
+    target_sources(${TARGET_TESTRUNNER} PRIVATE src/test/axion_media_test.cpp src/game/client/components/axion_media.cpp)
+    target_link_libraries(${TARGET_TESTRUNNER} windowsapp.lib)
+  endif()
   target_include_directories(${TARGET_TESTRUNNER} SYSTEM PRIVATE ${GTEST_INCLUDE_DIRS})
 
   list(APPEND TARGETS_OWN ${TARGET_TESTRUNNER})

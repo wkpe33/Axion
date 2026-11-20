@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <iterator> // std::size
 #include <new>
+#include <string>
 
 // todo: rework this
 
@@ -774,6 +775,22 @@ bool CConsole::ExecuteFile(const char *pFilename, int ClientId, bool LogFailure,
 
 		while(const char *pLine = LineReader.Get())
 		{
+			// Read old Axion configs without registering BestClient command names.
+			// The config manager writes the new ax_ names on the next normal save.
+			std::string Migrated;
+			const char *pCommand = str_skip_whitespaces_const(pLine);
+			if((m_FlagMask & CFGFLAG_CLIENT) && str_startswith(pCommand, "bc_"))
+			{
+				const char *pEnd = pCommand;
+				while(*pEnd && *pEnd != ' ' && *pEnd != '\t' && *pEnd != ';')
+					++pEnd;
+				const std::string Name = "ax_" + std::string(pCommand + 3, pEnd);
+				if(FindCommand(Name.c_str(), CFGFLAG_CLIENT))
+				{
+					Migrated = Name + pEnd;
+					pLine = Migrated.c_str();
+				}
+			}
 			ExecuteLine(pLine, ClientId);
 		}
 

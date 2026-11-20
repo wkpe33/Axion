@@ -6,9 +6,16 @@
 #include <engine/sound.h>
 
 #include <game/localization.h>
+#include <game/client/ui_scrollregion.h>
 
 void CMenus::RenderSettingsSound(CUIRect MainView)
 {
+	static CScrollRegion s_Scroll;
+	CScrollRegionParams Params;
+	Params.m_ScrollUnit = 60;
+	s_Scroll.Begin(&MainView, &Params);
+	const CUIRect Start = MainView;
+	const auto EndScroll = [&] { CUIRect Content = Start; Content.h = MainView.y - Start.y; s_Scroll.AddRect(Content); s_Scroll.End(); };
 	CUIRect Button;
 	MainView.HSplitTop(20.0f, &Button, &MainView);
 	if(DoButton_CheckBox(&g_Config.m_SndEnable, Localize("Use sounds"), g_Config.m_SndEnable, &Button))
@@ -20,7 +27,10 @@ void CMenus::RenderSettingsSound(CUIRect MainView)
 	m_NeedRestartSound = g_Config.m_SndEnable && !Sound()->IsSoundEnabled();
 
 	if(!g_Config.m_SndEnable)
+	{
+		EndScroll();
 		return;
+	}
 
 	MainView.HSplitTop(20.0f, &Button, &MainView);
 	if(DoButton_CheckBox(&g_Config.m_SndMusic, Localize("Play background music"), g_Config.m_SndMusic, &Button))
@@ -61,6 +71,10 @@ void CMenus::RenderSettingsSound(CUIRect MainView)
 	if(DoButton_CheckBox(&g_Config.m_SndHighlight, Localize("Enable highlighted chat sound"), g_Config.m_SndHighlight, &Button))
 		g_Config.m_SndHighlight ^= 1;
 
+	MainView.HSplitTop(20.0f, &Button, &MainView);
+	if(DoButton_CheckBox(&g_Config.m_AxHighlightBackground, Localize("Play highlighted chat sound when unfocused"), g_Config.m_AxHighlightBackground, &Button))
+		g_Config.m_AxHighlightBackground ^= 1;
+
 	// volume slider
 	{
 		MainView.HSplitTop(5.0f, nullptr, &MainView);
@@ -74,6 +88,11 @@ void CMenus::RenderSettingsSound(CUIRect MainView)
 		MainView.HSplitTop(20.0f, &Button, &MainView);
 		Ui()->DoScrollbarOption(&g_Config.m_SndGameVolume, &g_Config.m_SndGameVolume, &Button, Localize("Game sound volume"), 0, 100, &CUi::ms_LogarithmicScrollbarScale, 0u, "%");
 	}
+
+	// Pistol shots keep the existing master/game gain and ownership filters.
+	MainView.HSplitTop(5.0f, nullptr, &MainView);
+	MainView.HSplitTop(20.0f, &Button, &MainView);
+	Ui()->DoScrollbarOption(&g_Config.m_AxGunVolume, &g_Config.m_AxGunVolume, &Button, Localize("Pistol shot volume"), 0, 100, &CUi::ms_LogarithmicScrollbarScale, 0u, "%");
 
 	// volume slider gui sounds
 	{
@@ -95,4 +114,5 @@ void CMenus::RenderSettingsSound(CUIRect MainView)
 		MainView.HSplitTop(20.0f, &Button, &MainView);
 		Ui()->DoScrollbarOption(&g_Config.m_SndBackgroundMusicVolume, &g_Config.m_SndBackgroundMusicVolume, &Button, Localize("Background music volume"), 0, 100, &CUi::ms_LogarithmicScrollbarScale, 0u, "%");
 	}
+	EndScroll();
 }

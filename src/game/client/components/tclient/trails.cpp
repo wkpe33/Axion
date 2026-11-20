@@ -50,6 +50,8 @@ void CTrails::OnRender()
 
 	for(int ClientId = 0; ClientId < MAX_CLIENTS; ClientId++)
 	{
+		AxionPresentation::COwnerScope Owner(ClientId);
+		if(!GameClient()->m_Effects.Enabled(AxionPresentation::EEffect::TeeTrail)) continue;
 		const bool Local = GameClient()->m_Snap.m_LocalClientId == ClientId;
 
 		const bool ZoomAllowed = GameClient()->m_Camera.ZoomAllowed();

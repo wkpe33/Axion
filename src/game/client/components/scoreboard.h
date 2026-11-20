@@ -27,6 +27,9 @@ class CScoreboard : public CComponent
 	void RenderTitleBar(CUIRect TitleBar, int Team, const char *pTitle);
 	void RenderGoals(CUIRect Goals);
 	void RenderSpectators(CUIRect Spectators);
+	CUIRect ScoreboardHitbox(const CUIRect &Rect) const;
+	float m_ScoreboardScale = 1.0f;
+	vec2 m_ScoreboardOffset{};
 	void RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart, int CountEnd, CScoreboardRenderState &State, int NumPlayersForSize = -1);
 	void RenderRecordingNotification(float x);
 
@@ -41,6 +44,7 @@ class CScoreboard : public CComponent
 
 	std::optional<vec2> m_LastMousePos;
 	bool m_MouseUnlocked = false;
+	bool m_AltHeld = false, m_AltPreviousUnlocked = false;
 
 	void SetUiMousePos(vec2 Pos);
 	void LockMouse();
@@ -49,6 +53,12 @@ class CScoreboard : public CComponent
 	{
 	public:
 		CScoreboard *m_pScoreboard = nullptr;
+		CButtonContainer m_aActions[8];
+		float m_aHover[8]{};
+		float m_Animation = 0;
+		bool m_Closing = false;
+		int m_Connection = 0;
+		char m_aTargetName[64]{};
 		CButtonContainer m_FriendAction;
 		CButtonContainer m_MuteAction;
 		CButtonContainer m_EmoticonAction;
@@ -112,6 +122,7 @@ public:
 	bool OnInput(const IInput::CEvent &Event) override;
 
 	bool IsActive() const;
+	bool CursorActive() const { return IsActive() && m_MouseUnlocked; }
 };
 
 #endif

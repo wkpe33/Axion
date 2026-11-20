@@ -10,13 +10,18 @@
 
 #include <engine/shared/protocol7.h>
 
-bool CNetClient::Open(NETADDR BindAddr)
+bool CNetClient::Open(NETADDR BindAddr, int RequiredType)
 {
 	// open socket
 	NETSOCKET Socket;
 	Socket = net_udp_create(BindAddr);
 	if(!Socket)
 		return false;
+	if(RequiredType && !(net_socket_type(Socket) & RequiredType))
+	{
+		net_udp_close(Socket);
+		return false;
+	}
 	Close();
 	// clean it
 	*this = CNetClient{};

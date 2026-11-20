@@ -696,6 +696,9 @@ void CMenus::RenderLoadingDirect(const char *pCaption, const char *pContent, std
 	 * Waiting for calls of this function makes the rendering stutter, which you can notice with the background
 	 */
 	int RefreshRate = g_Config.m_GfxVsync || !Progress.has_value() ? 60 : (in_range(g_Config.m_GfxRefreshRate, 1, 300) ? g_Config.m_GfxRefreshRate : 300);
+	const bool FastStartup = m_StartupLoading;
+	if(FastStartup)
+		RefreshRate = std::min(RefreshRate, 12);
 	if(RefreshRate > 0 && Now - m_LoadingState.m_LastRender < std::chrono::nanoseconds(1s) / RefreshRate)
 		return;
 
@@ -711,7 +714,7 @@ void CMenus::RenderLoadingDirect(const char *pCaption, const char *pContent, std
 		// the menu background is not loaded yet.
 		return;
 	}
-	if(!GameClient()->m_MenuBackground.Render())
+	if(FastStartup || !GameClient()->m_MenuBackground.Render())
 	{
 		RenderBackground();
 	}
@@ -759,6 +762,7 @@ void CMenus::RenderLoading(const char *pCaption, const char *pContent, int Incre
 
 void CMenus::FinishLoading()
 {
+	m_StartupLoading = false;
 	m_LoadingState.m_Current = 0;
 	m_LoadingState.m_Total = 0;
 }
@@ -827,6 +831,14 @@ void CMenus::OnInit()
 
 	m_RefreshButton.Init(Ui(), -1);
 	m_ConnectButton.Init(Ui(), -1);
+
+	Console()->Register("axion_settings", "", CFGFLAG_CLIENT, [](IConsole::IResult *, void *pUser) {
+		auto *pMenus = static_cast<CMenus *>(pUser);
+		pMenus->m_ShowStart = false;
+		pMenus->SetMenuPage(PAGE_SETTINGS);
+		g_Config.m_UiSettingsPage = SETTINGS_AXION;
+		pMenus->SetActive(true);
+	}, this, "Open the Axion settings tab");
 
 	Console()->Chain("add_favorite", ConchainFavoritesUpdate, this);
 	Console()->Chain("remove_favorite", ConchainFavoritesUpdate, this);
@@ -2318,6 +2330,14 @@ bool CMenus::OnCursorMove(float x, float y, IInput::ECursorType CursorType)
 
 bool CMenus::OnInput(const IInput::CEvent &Event)
 {
+	if(IsActive() && m_Popup == POPUP_NONE && !Ui()->IsPopupOpen() && m_AxionMiscPanel != 0 &&
+		g_Config.m_UiSettingsPage == SETTINGS_AXION &&
+		(Client()->State() == IClient::STATE_OFFLINE ? m_MenuPage : m_GamePage) == PAGE_SETTINGS &&
+		Event.m_Key == KEY_ESCAPE && (Event.m_Flags & IInput::FLAG_PRESS))
+	{
+		m_AxionMiscPanel = 0;
+		return true;
+	}
 	// Escape key is always handled to activate/deactivate menu
 	if((Event.m_Flags & IInput::FLAG_PRESS && Event.m_Key == KEY_ESCAPE) || IsActive())
 	{

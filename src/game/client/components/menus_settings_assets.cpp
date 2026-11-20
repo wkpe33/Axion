@@ -5,6 +5,8 @@
 #include <base/time.h>
 
 #include <engine/font_icons.h>
+#include <engine/gfx/image_manipulation.h>
+#include <engine/shared/axion_texture_limits.h>
 #include <engine/shared/config.h>
 #include <engine/storage.h>
 #include <engine/textrender.h>
@@ -14,6 +16,8 @@
 #include <game/localization.h>
 
 #include <chrono>
+#include <string>
+#include <vector>
 
 using namespace std::chrono_literals;
 
@@ -34,8 +38,20 @@ enum
 	ASSETS_TAB_PARTICLES = 3,
 	ASSETS_TAB_HUD = 4,
 	ASSETS_TAB_EXTRAS = 5,
-	NUMBER_OF_ASSETS_TABS = 6,
+	ASSETS_TAB_AUDIO = 6,
+	NUMBER_OF_ASSETS_TABS = 7,
 };
+
+static IGraphics::CTextureHandle LoadAssetPreview(IGraphics *pGraphics, const char *pPath)
+{
+	CImageInfo Image;
+	if(!pGraphics->LoadPng(Image, pPath, IStorage::TYPE_ALL))
+		return pGraphics->LoadTexture(pPath, IStorage::TYPE_ALL);
+	const auto [W, H] = AxionBoundImage(Image.m_Width, Image.m_Height, 256, 256);
+	if(W != (int)Image.m_Width || H != (int)Image.m_Height)
+		ResizeImage(Image, W, H);
+	return pGraphics->LoadTextureRawMove(Image, 0, pPath);
+}
 
 void CMenus::LoadEntities(SCustomEntities *pEntitiesItem, void *pUser)
 {
@@ -48,7 +64,7 @@ void CMenus::LoadEntities(SCustomEntities *pEntitiesItem, void *pUser)
 		for(int i = 0; i < MAP_IMAGE_MOD_TYPE_COUNT; ++i)
 		{
 			str_format(aPath, sizeof(aPath), "editor/entities_clear/%s.png", gs_apModEntitiesNames[i]);
-			pEntitiesItem->m_aImages[i].m_Texture = pThis->Graphics()->LoadTexture(aPath, IStorage::TYPE_ALL);
+			pEntitiesItem->m_aImages[i].m_Texture = LoadAssetPreview(pThis->Graphics(), aPath);
 			if(!pEntitiesItem->m_RenderTexture.IsValid() || pEntitiesItem->m_RenderTexture.IsNullTexture())
 				pEntitiesItem->m_RenderTexture = pEntitiesItem->m_aImages[i].m_Texture;
 		}
@@ -58,11 +74,11 @@ void CMenus::LoadEntities(SCustomEntities *pEntitiesItem, void *pUser)
 		for(int i = 0; i < MAP_IMAGE_MOD_TYPE_COUNT; ++i)
 		{
 			str_format(aPath, sizeof(aPath), "assets/entities/%s/%s.png", pEntitiesItem->m_aName, gs_apModEntitiesNames[i]);
-			pEntitiesItem->m_aImages[i].m_Texture = pThis->Graphics()->LoadTexture(aPath, IStorage::TYPE_ALL);
+			pEntitiesItem->m_aImages[i].m_Texture = LoadAssetPreview(pThis->Graphics(), aPath);
 			if(pEntitiesItem->m_aImages[i].m_Texture.IsNullTexture())
 			{
 				str_format(aPath, sizeof(aPath), "assets/entities/%s.png", pEntitiesItem->m_aName);
-				pEntitiesItem->m_aImages[i].m_Texture = pThis->Graphics()->LoadTexture(aPath, IStorage::TYPE_ALL);
+				pEntitiesItem->m_aImages[i].m_Texture = LoadAssetPreview(pThis->Graphics(), aPath);
 			}
 			if(!pEntitiesItem->m_RenderTexture.IsValid() || pEntitiesItem->m_RenderTexture.IsNullTexture())
 				pEntitiesItem->m_RenderTexture = pEntitiesItem->m_aImages[i].m_Texture;
@@ -85,7 +101,7 @@ int CMenus::EntitiesScan(const char *pName, int IsDir, int DirType, void *pUser)
 
 		SCustomEntities EntitiesItem;
 		str_copy(EntitiesItem.m_aName, pName);
-		CMenus::LoadEntities(&EntitiesItem, pUser);
+
 		pThis->m_vEntitiesList.push_back(EntitiesItem);
 	}
 	else
@@ -100,7 +116,7 @@ int CMenus::EntitiesScan(const char *pName, int IsDir, int DirType, void *pUser)
 
 			SCustomEntities EntitiesItem;
 			str_copy(EntitiesItem.m_aName, aName);
-			CMenus::LoadEntities(&EntitiesItem, pUser);
+
 			pThis->m_vEntitiesList.push_back(EntitiesItem);
 		}
 	}
@@ -117,16 +133,16 @@ static void LoadAsset(TName *pAssetItem, const char *pAssetName, IGraphics *pGra
 	if(str_comp(pAssetItem->m_aName, "default") == 0)
 	{
 		str_format(aPath, sizeof(aPath), "%s.png", pAssetName);
-		pAssetItem->m_RenderTexture = pGraphics->LoadTexture(aPath, IStorage::TYPE_ALL);
+		pAssetItem->m_RenderTexture = LoadAssetPreview(pGraphics, aPath);
 	}
 	else
 	{
 		str_format(aPath, sizeof(aPath), "assets/%s/%s.png", pAssetName, pAssetItem->m_aName);
-		pAssetItem->m_RenderTexture = pGraphics->LoadTexture(aPath, IStorage::TYPE_ALL);
+		pAssetItem->m_RenderTexture = LoadAssetPreview(pGraphics, aPath);
 		if(pAssetItem->m_RenderTexture.IsNullTexture())
 		{
 			str_format(aPath, sizeof(aPath), "assets/%s/%s/%s.png", pAssetName, pAssetItem->m_aName, pAssetName);
-			pAssetItem->m_RenderTexture = pGraphics->LoadTexture(aPath, IStorage::TYPE_ALL);
+			pAssetItem->m_RenderTexture = LoadAssetPreview(pGraphics, aPath);
 		}
 	}
 }
@@ -146,7 +162,7 @@ static int AssetScan(const char *pName, int IsDir, int DirType, std::vector<TNam
 
 		TName AssetItem;
 		str_copy(AssetItem.m_aName, pName);
-		LoadAsset(&AssetItem, pAssetName, pGraphics);
+
 		vAssetList.push_back(AssetItem);
 	}
 	else
@@ -161,7 +177,7 @@ static int AssetScan(const char *pName, int IsDir, int DirType, std::vector<TNam
 
 			TName AssetItem;
 			str_copy(AssetItem.m_aName, aName);
-			LoadAsset(&AssetItem, pAssetName, pGraphics);
+
 			vAssetList.push_back(AssetItem);
 		}
 	}
@@ -322,7 +338,7 @@ static void InitAssetList(std::vector<TName> &vAssetList, const char *pAssetPath
 	{
 		TName AssetItem;
 		str_copy(AssetItem.m_aName, "default");
-		LoadAsset(&AssetItem, pAssetName, pGraphics);
+
 		vAssetList.push_back(AssetItem);
 
 		// load assets
@@ -364,7 +380,8 @@ void CMenus::RenderSettingsAssets(CUIRect MainView)
 		Localize("Emoticons"),
 		Localize("Particles"),
 		Localize("HUD"),
-		Localize("Extras")};
+		Localize("Extras"),
+		Localize("Audio")};
 
 	for(int Tab = ASSETS_TAB_ENTITIES; Tab < NUMBER_OF_ASSETS_TABS; ++Tab)
 	{
@@ -375,6 +392,69 @@ void CMenus::RenderSettingsAssets(CUIRect MainView)
 		{
 			s_CurCustomTab = Tab;
 		}
+	}
+
+	if(s_CurCustomTab == ASSETS_TAB_AUDIO)
+	{
+		static std::vector<std::string> s_Packs;
+		static CLineInputBuffered<64> s_Search;
+		static CListBox s_AudioList;
+		static CButtonContainer s_RefreshAudio, s_DirectoryAudio;
+		MainView.HSplitTop(10, nullptr, &MainView);
+		CUIRect Footer, Search, Directory, Refresh;
+		MainView.HSplitBottom(24, &MainView, &Footer);
+		Footer.VSplitRight(68, &Footer, &Refresh);
+		Footer.VSplitRight(6, &Footer, nullptr);
+		Footer.VSplitRight(110, &Search, &Directory);
+		Search.VSplitRight(6, &Search, nullptr);
+		const bool RefreshPacks = DoButton_Menu(&s_RefreshAudio, Localize("Refresh"), 0, &Refresh);
+		if(s_Packs.empty() || RefreshPacks || Input()->KeyPress(KEY_F5))
+		{
+			s_Packs = {"default"};
+			const auto Scan = [](const char *pName, int IsDir, int, void *pData) {
+				auto &Packs = *static_cast<std::vector<std::string> *>(pData);
+				if(IsDir && pName[0] != '.' && std::find(Packs.begin(), Packs.end(), pName) == Packs.end())
+					Packs.emplace_back(pName);
+				return 0;
+			};
+			Storage()->ListDirectory(IStorage::TYPE_ALL, "assets/audio", Scan, &s_Packs);
+			Storage()->ListDirectory(IStorage::TYPE_ALL, "audio", Scan, &s_Packs);
+			std::sort(s_Packs.begin() + 1, s_Packs.end());
+		}
+		Ui()->DoEditBox_Search(&s_Search, &Search, 12, !Ui()->IsPopupOpen());
+		if(DoButton_Menu(&s_DirectoryAudio, Localize("Audio directory"), 0, &Directory))
+		{
+			Storage()->CreateFolder("assets", IStorage::TYPE_SAVE);
+			Storage()->CreateFolder("assets/audio", IStorage::TYPE_SAVE);
+			char aPath[IO_MAX_PATH_LENGTH];
+			Storage()->GetCompletePath(IStorage::TYPE_SAVE, "assets/audio", aPath, sizeof(aPath));
+			Client()->ViewFile(aPath);
+		}
+		MainView.HSplitBottom(8, &MainView, nullptr);
+		std::vector<const std::string *> Visible;
+		int Selected = -1;
+		for(const auto &Pack : s_Packs)
+			if(s_Search.IsEmpty() || str_utf8_find_nocase(Pack.c_str(), s_Search.GetString()))
+			{
+				if(Pack == g_Config.m_SndPack)
+					Selected = Visible.size();
+				Visible.push_back(&Pack);
+			}
+		s_AudioList.DoStart(28, Visible.size(), 1, 1, Selected, &MainView);
+		for(size_t i = 0; i < Visible.size(); ++i)
+		{
+			const auto Item = s_AudioList.DoNextItem(Visible[i], (int)i == Selected);
+			if(Item.m_Visible)
+			{
+				CUIRect Label = Item.m_Rect;
+				Label.VMargin(10, &Label);
+				Ui()->DoLabel(&Label, Visible[i]->c_str(), 13, TEXTALIGN_ML);
+			}
+		}
+		const int NewSelected = s_AudioList.DoEnd();
+		if(NewSelected >= 0 && NewSelected < (int)Visible.size() && NewSelected != Selected)
+			str_copy(g_Config.m_SndPack, Visible[NewSelected]->c_str());
+		return;
 	}
 
 	auto LoadStartTime = time_get_nanoseconds();
@@ -390,7 +470,7 @@ void CMenus::RenderSettingsAssets(CUIRect MainView)
 		{
 			SCustomEntities EntitiesItem;
 			str_copy(EntitiesItem.m_aName, "default");
-			LoadEntities(&EntitiesItem, &User);
+
 			m_vEntitiesList.push_back(EntitiesItem);
 
 			// load entities
@@ -546,8 +626,30 @@ void CMenus::RenderSettingsAssets(CUIRect MainView)
 		const CListboxItem Item = s_ListBox.DoNextItem(pItem, OldSelected >= 0 && (size_t)OldSelected == i);
 		CUIRect ItemRect = Item.m_Rect;
 		ItemRect.Margin(Margin / 2, &ItemRect);
+		auto *pMutable = const_cast<SCustomItem *>(pItem); // Owned mutable lists above.
 		if(!Item.m_Visible)
+		{
+			if(s_CurCustomTab == ASSETS_TAB_ENTITIES)
+			{
+				auto *pEntity = const_cast<SCustomEntities *>(gs_vpSearchEntitiesList[i]);
+				for(auto &Image : pEntity->m_aImages)
+					Graphics()->UnloadTexture(&Image.m_Texture);
+				pEntity->m_RenderTexture.Invalidate();
+			}
+			else
+				Graphics()->UnloadTexture(&pMutable->m_RenderTexture);
 			continue;
+		}
+		if(!pMutable->m_RenderTexture.IsValid())
+		{
+			if(s_CurCustomTab == ASSETS_TAB_ENTITIES)
+				LoadEntities(const_cast<SCustomEntities *>(gs_vpSearchEntitiesList[i]), &User);
+			else
+			{
+				const char *apAssetNames[] = {"entities", "game", "emoticons", "particles", "hud", "extras"};
+				LoadAsset(pMutable, apAssetNames[s_CurCustomTab], Graphics());
+			}
+		}
 
 		CUIRect TextureRect;
 		ItemRect.HSplitTop(15, &ItemRect, &TextureRect);

@@ -8,11 +8,265 @@
 
 #include <engine/graphics.h>
 #include <engine/shared/config.h>
+#include <engine/storage.h>
 
 #include <game/client/components/menu_background.h>
 #include <game/client/gameclient.h>
 #include <game/client/ui.h>
+#include <game/client/ui_scrollregion.h>
 #include <game/localization.h>
+
+#include <algorithm>
+#include <charconv>
+#include <cstring>
+#include <string>
+#include <vector>
+
+void CMenus::RenderSettingsAxion(CUIRect View)
+{
+	static int s_Tab = 0;
+	static CButtonContainer s_aTabs[3];
+	const char *apTabs[] = {"Visuals", "Game", "Misc"};
+	CUIRect TabBar, Row, Label;
+	View.HSplitTop(24.0f, &TabBar, &View);
+	const float Width = TabBar.w / 3.0f;
+	for(int Index = 0; Index < 3; ++Index)
+	{
+		TabBar.VSplitLeft(Width, &Row, &TabBar);
+		if(DoButton_MenuTab(&s_aTabs[Index], apTabs[Index], s_Tab == Index, &Row,
+			   Index == 0 ? IGraphics::CORNER_L : Index == 2 ? IGraphics::CORNER_R :
+									   IGraphics::CORNER_NONE))
+		{
+			s_Tab = Index;
+			m_AxionMiscPanel = 0;
+		}
+	}
+	View.HSplitTop(10.0f, nullptr, &View);
+	if(s_Tab == 1 && m_CheatCheckPanel)
+	{
+		RenderCheatCheckMenu(View);
+		return;
+	}
+	if(s_Tab == 2 && m_AxionMiscPanel != 0)
+	{
+		CUIRect BackRow;
+		View.HSplitTop(26, &BackRow, &View);
+		BackRow.VSplitLeft(86, &BackRow, nullptr);
+		static CButtonContainer s_Back;
+		if(DoButton_Menu(&s_Back, Localize("Back"), 0, &BackRow))
+			m_AxionMiscPanel = 0;
+	}
+	static CScrollRegion s_aScroll[4];
+	CScrollRegion &s_Scroll = s_aScroll[s_Tab == 2 ? m_AxionMiscPanel + 1 : 0];
+	CScrollRegionParams ScrollParams;
+	if(s_Tab == 2 && m_AxionMiscPanel != 0)
+		ScrollParams.m_ScrollUnit = 76.0f;
+	s_Scroll.Begin(&View, &ScrollParams);
+	CUIRect Left, Right;
+	View.VSplitMid(&Left, &Right, 12.0f);
+	const auto BeginPanel = [&](CUIRect &Column, float Height, const char *pTitle) {
+		CUIRect Box;
+		Column.HSplitTop(Height, &Box, &Column);
+		Column.HSplitTop(8.0f, nullptr, &Column);
+		s_Scroll.AddRect(Box);
+		Box.Draw(ColorRGBA(0.0f, 0.0f, 0.0f, 0.25f), IGraphics::CORNER_ALL, 6.0f);
+		Box.Margin(8.0f, &Box);
+		Box.HSplitTop(22.0f, &Row, &Box);
+		Ui()->DoLabel(&Row, pTitle, 15.0f, TEXTALIGN_ML);
+		return Box;
+	};
+	const auto Check = [&](CUIRect &Panel, const char *pText, int &Value) {
+		Panel.HSplitTop(22.0f, &Row, &Panel);
+		Panel.HSplitTop(4.0f, nullptr, &Panel);
+		if(DoButton_CheckBox(&Value, pText, Value, &Row))
+			Value ^= 1;
+	};
+	const auto LabeledRow = [&](CUIRect &Panel, const char *pText) {
+		Panel.HSplitTop(22.0f, &Row, &Panel);
+		Panel.HSplitTop(4.0f, nullptr, &Panel);
+		Row.VSplitLeft(std::min(86.0f, Row.w * 0.40f), &Label, &Row);
+		Ui()->DoLabel(&Label, pText, 11.0f, TEXTALIGN_ML);
+		return Row;
+	};
+
+	if(s_Tab == 2 && m_AxionMiscPanel != 0)
+	{
+		const bool Effects = m_AxionMiscPanel == 1;
+		const int Count = Effects ? (int)AxionPresentation::EEffect::COUNT : AxionPresentation::SOUND_COUNT;
+		CUIRect Mine = BeginPanel(Left, 38 + 26.0f * Count, Effects ? Localize("My Effects") : Localize("My Sounds"));
+		CUIRect Others = BeginPanel(Right, 38 + 26.0f * Count, Effects ? Localize("Other Effects") : Localize("Other Sounds"));
+		if(Effects)
+		{
+#define AXION_EFFECT(Name, Script, Label) \
+	Check(Mine, Localize(Label), g_Config.m_AxEffectMy##Name); \
+	Check(Others, Localize(Label), g_Config.m_AxEffectOther##Name);
+#define AXION_SOUND(Name, Script, Id, Label)
+#include <engine/shared/axion_presentation_catalog.h>
+#undef AXION_EFFECT
+#undef AXION_SOUND
+		}
+		else
+		{
+#define AXION_EFFECT(Name, Script, Label)
+#define AXION_SOUND(Name, Script, Id, Label) \
+	Check(Mine, Localize(Label), g_Config.m_AxSoundMy##Name); \
+	Check(Others, Localize(Label), g_Config.m_AxSoundOther##Name);
+#include <engine/shared/axion_presentation_catalog.h>
+#undef AXION_EFFECT
+#undef AXION_SOUND
+		}
+		CUIRect Shared = View;
+		Shared.y = std::max(Left.y, Right.y);
+		CUIRect Panel = BeginPanel(Shared, Effects ? 220.0f : 560.0f, Localize("Shared / unknown owner"));
+		Panel.HSplitTop(20, &Row, &Panel);
+		Ui()->DoLabel(&Row, Localize("Server events without a player ID use these settings."), 10, TEXTALIGN_ML);
+		CUIRect SharedLeft, SharedRight;
+		Panel.VSplitMid(&SharedLeft, &SharedRight, 12);
+		int Index = 0;
+		const auto SharedCheck = [&](const char *pName, int &Value) { Check(Index++ % 2 == 0 ? SharedLeft : SharedRight, Localize(pName), Value); };
+		if(Effects)
+		{
+			SharedCheck("Hammer hit", g_Config.m_AxEffectSharedHammerHit);
+			SharedCheck("Grenade explosion", g_Config.m_AxEffectSharedExplosion);
+			SharedCheck("Spawn particles", g_Config.m_AxEffectSharedSpawn);
+			SharedCheck("Damage indicators", g_Config.m_AxEffectSharedDamage);
+			SharedCheck("Finish / birthday confetti", g_Config.m_AxEffectSharedConfetti);
+			SharedCheck("Ninja / pickup shine", g_Config.m_AxEffectSharedShine);
+			SharedCheck("Projectile smoke trail", g_Config.m_AxEffectSharedSmokeTrail);
+			SharedCheck("Bullet trail", g_Config.m_AxEffectSharedBulletTrail);
+			SharedCheck("Laser beam / head", g_Config.m_AxEffectSharedLaser);
+			SharedCheck("Smoke particles", g_Config.m_AxEffectSharedSmoke);
+			SharedCheck("All particle effects", g_Config.m_AxEffectSharedParticles);
+		}
+		else
+		{
+#define AXION_EFFECT(Name, Script, Label)
+#define AXION_SOUND(Name, Script, Id, Label) SharedCheck(Label, g_Config.m_AxSoundShared##Name);
+#include <engine/shared/axion_presentation_catalog.h>
+#undef AXION_EFFECT
+#undef AXION_SOUND
+		}
+		s_Scroll.End();
+		return;
+	}
+
+	if(s_Tab == 0)
+	{
+		CUIRect Panel = BeginPanel(Left, 66.0f, "Visuals");
+		Check(Panel, Localize("Short KoG / E-Gores names"), g_Config.m_AxionShortServerNames);
+		Panel = BeginPanel(Left, 66.0f, "HUD");
+		Panel.HSplitTop(22.0f, &Row, &Panel);
+		static CButtonContainer s_EditHud;
+		if(DoButton_Menu(&s_EditHud, Localize("Edit HUD"), 0, &Row))
+			GameClient()->m_AxionOverlay.Edit();
+
+		const bool NewHud = g_Config.m_AxNewHud != 0;
+		Panel = BeginPanel(Left, NewHud ? 224.0f : 68.0f, Localize("New HUD"));
+		Check(Panel, Localize("Enable New HUD"), g_Config.m_AxNewHud);
+		if(NewHud && g_Config.m_AxNewHud)
+		{
+			Check(Panel, Localize("Game timer"), g_Config.m_AxNewHudTimer);
+			Check(Panel, Localize("Unfrozen players / team size"), g_Config.m_AxNewHudRemaining);
+			Check(Panel, Localize("Frozen tees"), g_Config.m_AxNewHudFrozen);
+			Check(Panel, Localize("FPS"), g_Config.m_ClShowfps);
+			Check(Panel, Localize("Prediction time"), g_Config.m_ClShowpred);
+			Check(Panel, Localize("Show jumps indicator"), g_Config.m_ClShowhudJumpsIndicator);
+		}
+
+		Panel = BeginPanel(Right, g_Config.m_BcCustomAspectRatioMode == 2 ? 176.0f : 124.0f, "Aspect Ratio");
+		CUIRect Control = LabeledRow(Panel, Localize("Preset"));
+		const char *apRatios[] = {Localize("Native"), "5:4", "4:3", "3:2", "16:9", "16:10", Localize("Custom")};
+		const int aValues[] = {0, 125, 133, 150, 178, 160};
+		int Current = g_Config.m_BcCustomAspectRatioMode == 2 ? 6 : 0;
+		if(g_Config.m_BcCustomAspectRatioMode == 1)
+			for(int Index = 1; Index < 6; ++Index)
+				if(g_Config.m_BcCustomAspectRatio == aValues[Index])
+					Current = Index;
+		static CUi::SDropDownState s_RatioState;
+		static CScrollRegion s_RatioScroll;
+		s_RatioState.m_SelectionPopupContext.m_pScrollRegion = &s_RatioScroll;
+		const int Selected = Ui()->DoDropDown(&Control, Current, apRatios, std::size(apRatios), s_RatioState);
+		if(Selected != Current)
+		{
+			g_Config.m_BcCustomAspectRatioMode = Selected == 6 ? 2 : Selected == 0 ? 0 :
+												 1;
+			if(Selected < 6)
+				g_Config.m_BcCustomAspectRatio = aValues[Selected];
+		}
+		Control = LabeledRow(Panel, Localize("Apply"));
+		const char *apApplyModes[] = {Localize("Game"), Localize("Full"), Localize("Game without HUD")};
+		static CUi::SDropDownState s_ApplyState;
+		static CScrollRegion s_ApplyScroll;
+		s_ApplyState.m_SelectionPopupContext.m_pScrollRegion = &s_ApplyScroll;
+		g_Config.m_BcCustomAspectRatioApplyMode = Ui()->DoDropDown(&Control, g_Config.m_BcCustomAspectRatioApplyMode, apApplyModes, std::size(apApplyModes), s_ApplyState);
+		Check(Panel, Localize("Cursor as without stretch"), g_Config.m_BcCustomAspectRatioCursorNative);
+		if(g_Config.m_BcCustomAspectRatioMode == 2)
+		{
+			static CLineInputNumber s_Width(16), s_Height(9);
+			static int s_ConfigWidth = -1, s_ConfigHeight = -1;
+			if(s_ConfigWidth != g_Config.m_BcCustomAspectRatioNum || s_ConfigHeight != g_Config.m_BcCustomAspectRatioDen)
+			{
+				s_Width.SetInteger(g_Config.m_BcCustomAspectRatioNum);
+				s_Height.SetInteger(g_Config.m_BcCustomAspectRatioDen);
+				s_ConfigWidth = g_Config.m_BcCustomAspectRatioNum;
+				s_ConfigHeight = g_Config.m_BcCustomAspectRatioDen;
+			}
+			Control = LabeledRow(Panel, Localize("Custom size"));
+			CUIRect WidthBox, Separator, HeightBox;
+			Control.VSplitMid(&WidthBox, &HeightBox, 14.0f);
+			Separator = {WidthBox.x + WidthBox.w, Control.y, 14.0f, Control.h};
+			Ui()->DoEditBox(&s_Width, &WidthBox, 12.0f);
+			Ui()->DoLabel(&Separator, ":", 12.0f, TEXTALIGN_MC);
+			Ui()->DoEditBox(&s_Height, &HeightBox, 12.0f);
+			const auto ParseSize = [](const CLineInputNumber &Input, int &Value) {
+				const char *pStart = Input.GetString();
+				const char *pEnd = pStart + std::strlen(pStart);
+				const auto Parsed = std::from_chars(pStart, pEnd, Value);
+				return Parsed.ec == std::errc{} && Parsed.ptr == pEnd && Value >= 1 && Value <= 10000;
+			};
+			int NewWidth = 0, NewHeight = 0;
+			const bool Valid = ParseSize(s_Width, NewWidth) && ParseSize(s_Height, NewHeight);
+			Control = LabeledRow(Panel, "");
+			static CButtonContainer s_Apply;
+			if(DoButton_Menu(&s_Apply, Valid ? Localize("Apply") : Localize("Enter 1–10000"), 0, &Control) && Valid)
+			{
+				g_Config.m_BcCustomAspectRatioNum = NewWidth;
+				g_Config.m_BcCustomAspectRatioDen = NewHeight;
+				s_ConfigWidth = NewWidth;
+				s_ConfigHeight = NewHeight;
+			}
+		}
+	}
+	else if(s_Tab == 1)
+	{
+		CUIRect Panel = BeginPanel(Left, 68.0f, Localize("Prediction"));
+		Check(Panel, Localize("Predict moving tiles (Ego)"), g_Config.m_AxMovingTilePrediction);
+		Panel = BeginPanel(Right, 66.0f, "Cheat checker");
+		Panel.HSplitTop(22.0f, &Row, &Panel);
+		static CButtonContainer s_CheatCheck;
+		if(DoButton_Menu(&s_CheatCheck, "CheatCheck", 0, &Row))
+			m_CheatCheckPanel = true;
+	}
+	else if(s_Tab == 2)
+	{
+		CUIRect Panel = BeginPanel(Left, 90.0f, Localize("Gameplay"));
+		static CButtonContainer s_Effects, s_Sounds;
+		Panel.HSplitTop(22, &Row, &Panel);
+		if(DoButton_Menu(&s_Effects, Localize("Effects"), 0, &Row))
+			m_AxionMiscPanel = 1;
+		Panel.HSplitTop(4, nullptr, &Panel);
+		Panel.HSplitTop(22, &Row, &Panel);
+		if(DoButton_Menu(&s_Sounds, Localize("Sounds"), 0, &Row))
+			m_AxionMiscPanel = 2;
+		Panel = BeginPanel(Right, 94.0f, Localize("Chat"));
+		Check(Panel, Localize("Silent typing"), g_Config.m_BcSilentTyping);
+		Check(Panel, Localize("Use vote binds for team invitations"), g_Config.m_AxInvitationVoteBinds);
+		Panel = BeginPanel(Right, 66.0f, "HUD");
+		Check(Panel, Localize("Show spectator names"), g_Config.m_AxSpectatorNames);
+	}
+
+	s_Scroll.End();
+}
 
 void CMenus::SetNeedSendInfo()
 {
@@ -27,7 +281,8 @@ void CMenus::RenderSettings(CUIRect MainView)
 	// render background
 	CUIRect Button, TabBar, RestartBar;
 	MainView.VSplitRight(120.0f, &MainView, &TabBar);
-	MainView.Draw(ms_ColorTabbarActive, IGraphics::CORNER_B, 10.0f);
+	const ColorRGBA PanelColor = ms_ColorTabbarActive;
+	MainView.Draw(PanelColor, IGraphics::CORNER_B, 10.0f);
 	MainView.Margin(20.0f, &MainView);
 
 	const bool NeedRestart = m_NeedRestartGraphics || m_NeedRestartSound || m_NeedRestartUpdate;
@@ -54,14 +309,19 @@ void CMenus::RenderSettings(CUIRect MainView)
 		TCLocalize("TClient"), // TClient
 		Localize("Profiles"), // TClient
 		Localize("Configs"), // TClient
-		Localize("Credits")};
+		"Axion"};
 	static CButtonContainer s_aTabButtons[SETTINGS_LENGTH];
 
-	for(int i = 0; i < SETTINGS_LENGTH; i++)
+	for(int Row = 0; Row < SETTINGS_LENGTH; Row++)
 	{
+		int i = Row;
+		if(Row == SETTINGS_TCLIENT + 1)
+			i = SETTINGS_AXION;
+		else if(Row > SETTINGS_TCLIENT + 1)
+			i = Row - 1;
 		TabBar.HSplitTop(10.0f, nullptr, &TabBar);
 		TabBar.HSplitTop(26.0f, &Button, &TabBar);
-		if(DoButton_MenuTab(&s_aTabButtons[i], apTabs[i], g_Config.m_UiSettingsPage == i, &Button, IGraphics::CORNER_R, &m_aAnimatorsSettingsTab[i]))
+		if(DoButton_MenuTab(&s_aTabButtons[i], apTabs[i], g_Config.m_UiSettingsPage == i, &Button, IGraphics::CORNER_R, i == SETTINGS_AXION ? nullptr : &m_aAnimatorsSettingsTab[i]))
 			g_Config.m_UiSettingsPage = i;
 	}
 
@@ -133,10 +393,9 @@ void CMenus::RenderSettings(CUIRect MainView)
 		GameClient()->m_MenuBackground.ChangePosition(CMenuBackground::POS_SETTINGS_PLAYER);
 		RenderSettingsTClientConfigs(MainView);
 	}
-	else if(g_Config.m_UiSettingsPage == SETTINGS_CREDITS)
+	else if(g_Config.m_UiSettingsPage == SETTINGS_AXION)
 	{
-		GameClient()->m_MenuBackground.ChangePosition(CMenuBackground::POS_SETTINGS_CREDITS);
-		RenderSettingsCredits(MainView);
+		RenderSettingsAxion(MainView);
 	}
 	else
 	{

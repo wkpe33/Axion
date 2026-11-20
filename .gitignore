@@ -96,6 +96,7 @@ generated
 target
 
 /build*
+!/BUILD.md
 /integration_test/*
 /source_date_epoch
 

@@ -97,6 +97,7 @@ void CMenusSettingsControls::OnInterfacesInit(CGameClient *pClient)
 		{EBindOptionGroup::MISCELLANEOUS, Localizable("Emoticon"), "+emote"},
 		{EBindOptionGroup::MISCELLANEOUS, Localizable("Spectator mode"), "+spectate"},
 		{EBindOptionGroup::MISCELLANEOUS, Localizable("Spectate next"), "spectate_next"},
+		{EBindOptionGroup::MISCELLANEOUS, Localizable("Ghost spectate"), "ax_ghost_spectate"},
 		{EBindOptionGroup::MISCELLANEOUS, Localizable("Spectate previous"), "spectate_previous"},
 		{EBindOptionGroup::MISCELLANEOUS, Localizable("Console"), "toggle_local_console"},
 		{EBindOptionGroup::MISCELLANEOUS, Localizable("Remote console"), "toggle_remote_console"},

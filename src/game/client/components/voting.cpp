@@ -1,3 +1,4 @@
+#include "axion_hud_layout.h"
 /* (c) Magnus Auvinen. See licence.txt in the root of the distribution for more information. */
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 #include "voting.h"
@@ -24,10 +25,13 @@ void CVoting::ConCallvote(IConsole::IResult *pResult, void *pUserData)
 void CVoting::ConVote(IConsole::IResult *pResult, void *pUserData)
 {
 	CVoting *pSelf = (CVoting *)pUserData;
-	if(str_comp_nocase(pResult->GetString(0), "yes") == 0)
-		pSelf->Vote(1);
-	else if(str_comp_nocase(pResult->GetString(0), "no") == 0)
-		pSelf->Vote(-1);
+	const bool Yes = str_comp_nocase(pResult->GetString(0), "yes") == 0;
+	if(!Yes && str_comp_nocase(pResult->GetString(0), "no") != 0)
+		return;
+	if(g_Config.m_AxInvitationVoteBinds && !pSelf->IsVoting() &&
+		pSelf->GameClient()->m_AxionOverlay.RespondToInvitation(Yes))
+		return;
+	pSelf->Vote(Yes ? 1 : -1);
 }
 
 void CVoting::Callvote(const char *pType, const char *pValue, const char *pReason)
@@ -337,6 +341,7 @@ void CVoting::OnMessage(int MsgType, void *pRawMsg)
 
 void CVoting::Render()
 {
+	AxionHud::CScope Layout(Graphics(), AxionHud::VOTES);
 	if((!g_Config.m_ClShowVotesAfterVoting && !GameClient()->m_Scoreboard.IsActive() && TakenChoice()) || !IsVoting())
 		return;
 	const int Seconds = SecondsLeft();
@@ -346,8 +351,10 @@ void CVoting::Render()
 		return;
 	}
 
-	// TClient
-	if(g_Config.m_TcMiniVoteHud > 0)
+	const auto Screen = Graphics()->GetScreen();
+	const bool Mini = g_Config.m_TcMiniVoteHud > 0;
+	AxionHud::Record(AxionHud::VOTES, {0, 60, Mini ? 70.0f : 120.0f, Mini ? 35.0f : 38.0f}, Screen.Width(), Screen.Height());
+	if(Mini)
 	{
 		GameClient()->m_TClient.RenderMiniVoteHud();
 		return;

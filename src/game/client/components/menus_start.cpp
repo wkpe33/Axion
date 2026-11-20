@@ -2,6 +2,8 @@
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 #include "menus_start.h"
 
+#include <base/process.h>
+#include <engine/storage.h>
 #include <engine/client/updater.h>
 #include <engine/font_icons.h>
 #include <engine/graphics.h>
@@ -29,7 +31,7 @@ void CMenusStart::RenderStartMenu(CUIRect MainView)
 	Graphics()->TextureSet(g_pData->m_aImages[IMAGE_BANNER].m_Id);
 	Graphics()->QuadsBegin();
 	Graphics()->SetColor(1, 1, 1, 1);
-	IGraphics::CQuadItem QuadItem(MainView.w / 2 - 170, 60, 360, 103);
+	IGraphics::CQuadItem QuadItem(MainView.w / 2 - 180, 52, 360, 120);
 	Graphics()->QuadsDrawTL(&QuadItem, 1);
 	Graphics()->QuadsEnd();
 
@@ -160,7 +162,7 @@ void CMenusStart::RenderStartMenu(CUIRect MainView)
 	MainView.HSplitTop(15.0f, &TClientVersion, &MainView);
 	TClientVersion.VSplitRight(40.0f, &TClientVersion, nullptr);
 	char aTBuf[64];
-	str_format(aTBuf, sizeof(aTBuf), CLIENT_NAME " %s", CLIENT_RELEASE_VERSION);
+	str_format(aTBuf, sizeof(aTBuf), "Axion %s", CTClient::AXION_UPDATE_VERSION);
 	Ui()->DoLabel(&TClientVersion, aTBuf, 14.0f, TEXTALIGN_MR);
 #if defined(CONF_AUTOUPDATE)
 	CUIRect UpdateToDateText;
@@ -188,6 +190,28 @@ void CMenusStart::RenderStartMenu(CUIRect MainView)
 	CUIRect VersionUpdate;
 	MainView.HSplitBottom(20.0f, nullptr, &VersionUpdate);
 	VersionUpdate.VMargin(VMargin, &VersionUpdate);
+#if defined(CONF_FAMILY_WINDOWS) && !defined(CONF_AUTOUPDATE)
+	CUIRect AxionUpdateButton;
+	VersionUpdate.VSplitRight(140.0f, &VersionUpdate, &AxionUpdateButton);
+	static CButtonContainer s_AxionUpdateButton;
+	static bool s_UpdateLaunchFailed = false;
+	static bool s_UpdateLaunched = false;
+	if(GameClient()->m_TClient.NeedUpdate() && !s_UpdateLaunched &&
+		GameClient()->m_Menus.DoButton_Menu(&s_AxionUpdateButton, Localize("Update Axion"), 0, &AxionUpdateButton))
+	{
+		char aPath[IO_MAX_PATH_LENGTH];
+		Storage()->GetBinaryPathAbsolute("AxionUpdater.exe", aPath, sizeof(aPath));
+		char aPid[24];
+		str_format(aPid, sizeof(aPid), "%d", process_id());
+		const char *apArgs[] = {aPid, CTClient::AXION_UPDATE_VERSION};
+		s_UpdateLaunched = process_execute(aPath, EShellExecuteWindowState::FOREGROUND, apArgs, std::size(apArgs));
+		s_UpdateLaunchFailed = !s_UpdateLaunched;
+	}
+	if(s_UpdateLaunchFailed)
+		Ui()->DoLabel(&VersionUpdate, Localize("Could not start Axion updater"), 12.0f, TEXTALIGN_MR);
+	else if(s_UpdateLaunched)
+		Ui()->DoLabel(&VersionUpdate, Localize("Axion updater is running"), 12.0f, TEXTALIGN_MR);
+#endif
 #if defined(CONF_AUTOUPDATE)
 	CUIRect UpdateButton;
 	VersionUpdate.VSplitRight(100.0f, &VersionUpdate, &UpdateButton);

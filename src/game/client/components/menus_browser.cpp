@@ -2,6 +2,11 @@
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 #include "menus.h"
 
+#include <engine/client/udp_port_test.h>
+
+#include <charconv>
+#include <cstring>
+
 #include <base/dbg.h>
 #include <base/log.h>
 #include <base/time.h>
@@ -65,6 +70,108 @@ static void FormatServerbrowserPing(char (&aBuffer)[N], const CServerInfo *pInfo
 static ColorRGBA GetPingTextColor(int Latency)
 {
 	return color_cast<ColorRGBA>(ColorHSLA((300.0f - std::clamp(Latency, 0, 300)) / 1000.0f, 1.0f, 0.5f));
+}
+
+// Adapted from BestClient Browser Utils, Copyright 2026 BestProject Team. See BESTCLIENT-LICENSE.txt.
+static const char *AxionServerDisplayName(const CServerInfo *pInfo, char *pBuffer, size_t BufferSize)
+{
+	if(!g_Config.m_AxionShortServerNames)
+		return pInfo->m_aName;
+
+	const bool IsKog = str_find_nocase(pInfo->m_aGameType, "gores") && str_find_nocase(pInfo->m_aName, "kog");
+	const bool IsEGores = str_find_nocase(pInfo->m_aGameType, "e-gores") || str_find_nocase(pInfo->m_aGameType, "e_gores");
+
+	if(!IsKog && !IsEGores)
+		return pInfo->m_aName;
+
+	const auto IsAsciiWordChar = [](char c) {
+		return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+	};
+	const auto IsKogSeparator = [](char c) {
+		return c == ' ' || c == '|' || c == '*' || c == '-' || c == ':' || c == '[' || c == ']';
+	};
+
+	const char *pShortName = pInfo->m_aName;
+
+	if(IsKog)
+	{
+		const char *pScan = pInfo->m_aName;
+		while(const char *pMatch = str_find_nocase(pScan, "kog"))
+		{
+			const char Prev = pMatch > pInfo->m_aName ? pMatch[-1] : '\0';
+			const char Next = pMatch[3];
+			if(!IsAsciiWordChar(Prev) && !IsAsciiWordChar(Next))
+			{
+				pShortName = pMatch + 3;
+				while(*pShortName != '\0' && IsKogSeparator(*pShortName))
+					++pShortName;
+				break;
+			}
+			pScan = pMatch + 1;
+		}
+	}
+
+	pShortName = str_skip_whitespaces_const(pShortName);
+	str_copy(pBuffer, pShortName, BufferSize);
+
+	if(IsEGores)
+	{
+		if(const char *pEgo = str_find_nocase(pBuffer, "ego"))
+		{
+			const char *pAfterEgo = pEgo + 3;
+			while(*pAfterEgo == ' ' || *pAfterEgo == '|')
+				++pAfterEgo;
+			if(*pAfterEgo != '\0')
+				std::memmove(pBuffer, pAfterEgo, std::strlen(pAfterEgo) + 1);
+		}
+		if(char *pSuffix = const_cast<char *>(str_find_nocase(pBuffer, "[eternal")))
+		{
+			while(pSuffix > pBuffer && pSuffix[-1] == ' ')
+				--pSuffix;
+			*pSuffix = '\0';
+		}
+	}
+
+	if(const char *pSuffix = str_endswith_nocase(pBuffer, "[kog.tw]"))
+	{
+		char *pSuffixStart = const_cast<char *>(pSuffix);
+		while(pSuffixStart > pBuffer && pSuffixStart[-1] == ' ')
+			--pSuffixStart;
+		*pSuffixStart = '\0';
+	}
+
+	char *pHashToken = const_cast<char *>(str_find(pBuffer, " #"));
+	if(pHashToken != nullptr)
+	{
+		char *pDigits = pHashToken + 2;
+		if('0' <= *pDigits && *pDigits <= '9')
+		{
+			while('0' <= *pDigits && *pDigits <= '9')
+				++pDigits;
+
+			if(str_startswith(pDigits, " - "))
+			{
+				const char *pMapName = str_skip_whitespaces_const(pDigits + 3);
+				char *pRegionEnd = pHashToken;
+				while(pRegionEnd > pBuffer && pRegionEnd[-1] == ' ')
+					--pRegionEnd;
+				*pRegionEnd = '\0';
+
+				if(pBuffer[0] != '\0' && pMapName[0] != '\0')
+				{
+					const std::string Region = pBuffer;
+					const std::string MapName = pMapName;
+					str_format(pBuffer, BufferSize, "%s - %s", Region.c_str(), MapName.c_str());
+				}
+				else if(pMapName[0] != '\0')
+				{
+					str_copy(pBuffer, pMapName, BufferSize);
+				}
+			}
+		}
+	}
+
+	return pBuffer[0] != '\0' ? pBuffer : pInfo->m_aName;
 }
 
 void CMenus::RenderServerbrowserServerList(CUIRect View, bool &WasListboxItemActivated)
@@ -363,21 +470,23 @@ void CMenus::RenderServerbrowserServerList(CUIRect View, bool &WasListboxItemAct
 			}
 			else if(Id == COL_NAME)
 			{
+				char aDisplayName[sizeof(pItem->m_aName)];
+				const char *pDisplayName = AxionServerDisplayName(pItem, aDisplayName, sizeof(aDisplayName));
 				SLabelProperties Props;
 				Props.m_MaxWidth = Button.w;
 				Props.m_StopAtEnd = true;
 				Props.m_EnableWidthCheck = false;
 				bool Printed = false;
 				if(g_Config.m_BrFilterString[0] && (pItem->m_QuickSearchHit & IServerBrowser::QUICK_SERVERNAME))
-					Printed = PrintHighlighted(pItem->m_aName, [&](const char *pFilteredStr, const int FilterLen) {
-						Ui()->DoLabelStreamed(*pUiElement->Rect(UI_ELEM_NAME_1), &Button, pItem->m_aName, FontSize, TEXTALIGN_ML, Props, (int)(pFilteredStr - pItem->m_aName));
+					Printed = PrintHighlighted(pDisplayName, [&](const char *pFilteredStr, const int FilterLen) {
+						Ui()->DoLabelStreamed(*pUiElement->Rect(UI_ELEM_NAME_1), &Button, pDisplayName, FontSize, TEXTALIGN_ML, Props, (int)(pFilteredStr - pDisplayName));
 						TextRender()->TextColor(HIGHLIGHTED_TEXT_COLOR);
 						Ui()->DoLabelStreamed(*pUiElement->Rect(UI_ELEM_NAME_2), &Button, pFilteredStr, FontSize, TEXTALIGN_ML, Props, FilterLen, &pUiElement->Rect(UI_ELEM_NAME_1)->m_Cursor);
 						TextRender()->TextColor(TextRender()->DefaultTextColor());
 						Ui()->DoLabelStreamed(*pUiElement->Rect(UI_ELEM_NAME_3), &Button, pFilteredStr + FilterLen, FontSize, TEXTALIGN_ML, Props, -1, &pUiElement->Rect(UI_ELEM_NAME_2)->m_Cursor);
 					});
 				if(!Printed)
-					Ui()->DoLabelStreamed(*pUiElement->Rect(UI_ELEM_NAME_1), &Button, pItem->m_aName, FontSize, TEXTALIGN_ML, Props);
+					Ui()->DoLabelStreamed(*pUiElement->Rect(UI_ELEM_NAME_1), &Button, pDisplayName, FontSize, TEXTALIGN_ML, Props);
 			}
 			else if(Id == COL_GAMETYPE)
 			{
@@ -479,6 +588,180 @@ void CMenus::RenderServerbrowserServerList(CUIRect View, bool &WasListboxItemAct
 	WasListboxItemActivated = s_ListBox.WasItemActivated();
 }
 
+CUi::EPopupMenuFunctionResult CMenus::PopupUdpPortTest(void *pContext, CUIRect View, bool Active)
+{
+	if(Active)
+		static_cast<CMenus *>(pContext)->RenderServerbrowserUdpTest(View);
+	return CUi::POPUP_KEEP_OPEN;
+}
+
+void CMenus::RenderServerbrowserUdpTest(CUIRect View)
+{
+	CUdpPortTest &Test = Client()->UdpPortTest();
+	const NETADDR &Server = m_UdpPopupServer;
+	static CLineInputBuffered<8> s_CustomPort;
+	static NETADDR s_LastServer{};
+	static std::array<CUdpPortTest::SResult, 5> s_aResults{};
+	static bool s_aHasResult[5]{};
+	static bool s_AutoSearch = false;
+	static bool s_Invalid = false;
+	if(Server != s_LastServer)
+	{
+		s_LastServer = Server;
+		std::fill(std::begin(s_aHasResult), std::end(s_aHasResult), false);
+		s_AutoSearch = false;
+		s_Invalid = false;
+	}
+
+	CUIRect Row, Label, Action;
+	char aAddress[NETADDR_MAXSTRSIZE], aText[160];
+	net_addr_str(&Server, aAddress, sizeof(aAddress), true);
+	str_format(aText, sizeof(aText), "%s  %s", Localize("Test UDP"), aAddress);
+	View.HSplitTop(24.0f, &Row, &View);
+	Ui()->DoLabel(&Row, aText, 16.0f, TEXTALIGN_ML);
+	View.HSplitTop(16.0f, &Row, &View);
+	Ui()->DoLabel(&Row, Localize("Measures local UDP ports with server-info requests."), 11.0f, TEXTALIGN_ML);
+	View.HSplitTop(16.0f, &Row, &View);
+	Ui()->DoLabel(&Row, Localize("Gameplay latency can differ from these results."), 11.0f, TEXTALIGN_ML);
+	View.HSplitTop(5.0f, nullptr, &View);
+	View.HSplitTop(20.0f, &Row, &View);
+	Row.VSplitLeft(190.0f, &Label, &Action);
+	Ui()->DoLabel(&Label, Localize("Custom local port (1–65535)"), 12.0f, TEXTALIGN_ML);
+	Ui()->DoClearableEditBox(&s_CustomPort, &Action, 12.0f);
+
+	int Custom = -1;
+	const char *pValue = s_CustomPort.GetString();
+	const char *pEnd = pValue + std::strlen(pValue);
+	const auto Parsed = std::from_chars(pValue, pEnd, Custom);
+	if(Parsed.ec != std::errc{} || Parsed.ptr != pEnd || Custom < 1 || Custom > 65535)
+		Custom = -1;
+	const int aPorts[] = {0, 40000, 45000, 50000, Custom};
+	const bool SameServer = Test.Server() == Server;
+	const bool Running = Test.Running();
+	if(SameServer && !Test.Searching() && !s_AutoSearch)
+	{
+		for(const auto &Result : Test.Results())
+		{
+			for(size_t Index = 0; Index < std::size(aPorts); ++Index)
+			{
+				if(Result.m_Port == aPorts[Index])
+				{
+					s_aResults[Index] = Result;
+					s_aHasResult[Index] = true;
+				}
+			}
+		}
+	}
+
+	const auto Start = [&](const char *pPorts, bool Search = false) {
+		if(!Running)
+		{
+			s_Invalid = !Client()->StartUdpPortTest(Server, pPorts);
+			s_AutoSearch = !s_Invalid && Search;
+		}
+	};
+	View.HSplitTop(6.0f, nullptr, &View);
+	View.HSplitTop(18.0f, &Row, &View);
+	Row.VSplitLeft(86.0f, &Label, &Row);
+	Ui()->DoLabel(&Label, Localize("Local port"), 11.0f, TEXTALIGN_ML);
+	Ui()->DoLabel(&Row, Localize("Median RTT / loss or status"), 11.0f, TEXTALIGN_ML);
+	static CButtonContainer s_aTest[std::size(aPorts)];
+	static CButtonContainer s_aUse[std::size(aPorts)];
+	for(size_t Index = 0; Index < std::size(aPorts); ++Index)
+	{
+		View.HSplitTop(20.0f, &Row, &View);
+		Row.Margin(1.0f, &Row);
+		Row.VSplitLeft(80.0f, &Label, &Row);
+		Row.VSplitLeft(6.0f, nullptr, &Row);
+		Row.VSplitRight(58.0f, &Row, &Action);
+		CUIRect Select;
+		Row.VSplitRight(74.0f, &Row, &Select);
+		Select.VSplitRight(4.0f, &Select, nullptr);
+		const int Port = aPorts[Index];
+		if(Index == 0)
+			str_copy(aText, Localize("Auto"));
+		else if(Index == 4)
+			str_copy(aText, Localize("Custom"));
+		else
+			str_format(aText, sizeof(aText), "%d", Port);
+		Ui()->DoLabel(&Label, aText, 12.0f, TEXTALIGN_ML);
+
+		const auto &Result = s_aResults[Index];
+		const bool HasResult = s_aHasResult[Index] && Result.m_Port == Port;
+		if(HasResult && Result.m_BindFailed)
+			str_copy(aText, Localize("Bind failed"));
+		else if(HasResult && Result.m_Received)
+			str_format(aText, sizeof(aText), "%.1f ms  /  %.0f%%", Result.Median(), (Result.m_Sent - Result.m_Received) * 100.0 / Result.m_Sent);
+		else if(HasResult && Result.m_Sent)
+			str_copy(aText, Running ? Localize("Waiting") : Localize("No replies"));
+		else
+			str_copy(aText, Port < 0 ? Localize("Enter a port") : Localize("Ready"));
+
+		Ui()->DoLabel(&Row, aText, 12.0f, TEXTALIGN_ML);
+		if(!Running && HasResult && Result.m_Received && Result.m_Sent == CUdpPortTest::NUM_PROBES)
+		{
+			const bool Selected = Test.PreferredPort(Server) == Port;
+			if(DoButton_Menu(&s_aUse[Index], Selected ? Localize("Selected") : Localize("Select"), Selected, &Select))
+				Test.SetPreferredPort(Server, Port);
+		}
+		if(!Running && Port >= 0 && DoButton_Menu(&s_aTest[Index], Localize("Test"), 0, &Action))
+		{
+			str_format(aText, sizeof(aText), "%d", Port);
+			Start(aText);
+		}
+	}
+
+	View.HSplitTop(5.0f, nullptr, &View);
+	View.HSplitTop(22.0f, &Row, &View);
+	Row.VSplitLeft(116.0f, &Action, &Label);
+	Label.VSplitLeft(6.0f, nullptr, &Label);
+	static CButtonContainer s_Search, s_Best;
+	if(!Running && DoButton_Menu(&s_Search, Localize("Auto port"), 0, &Action))
+		Start("search", true);
+	const int Best = SameServer && s_AutoSearch && !Running ? Test.BestPort() : 0;
+	if(Best)
+	{
+		const auto It = std::find_if(Test.Results().begin(), Test.Results().end(), [Best](const auto &Result) { return Result.m_Port == Best; });
+		str_format(aText, sizeof(aText), "%s %d  /  %.1f ms", Localize("Select port"), Best, It->Median());
+		if(DoButton_Menu(&s_Best, aText, Test.PreferredPort(Server) == Best, &Label))
+			Test.SetPreferredPort(Server, Best);
+	}
+	else
+	{
+		if(s_AutoSearch && Test.Searching())
+			str_format(aText, sizeof(aText), "%d / %d", Test.SearchProgress(), CUdpPortTest::SEARCH_PORTS);
+		else if(s_AutoSearch)
+			str_copy(aText, Running ? Localize("Confirming candidates") : Localize("No confirmed port"));
+		else
+			str_copy(aText, Localize("Search 64 local UDP ports"));
+		Ui()->DoLabel(&Label, aText, 12.0f, TEXTALIGN_ML);
+	}
+	View.HSplitTop(18.0f, &Row, &View);
+	const int Preferred = Test.PreferredPort(Server);
+	if(s_Invalid)
+		str_copy(aText, Localize("Could not start the test"));
+	else if(Preferred)
+		str_format(aText, sizeof(aText), "%s %d", Localize("Saved local port"), Preferred);
+	else
+		str_copy(aText, Localize("Select a result to save its port for the next connection."));
+	Ui()->DoLabel(&Row, aText, 11.0f, TEXTALIGN_ML);
+	View.HSplitTop(22.0f, &Row, &View);
+	Row.VSplitLeft(190.0f, &Action, nullptr);
+	static CButtonContainer s_All;
+	if(DoButton_Menu(&s_All, Running ? Localize("Cancel") : Localize("Test All"), 0, &Action))
+	{
+		if(Running)
+			Test.Cancel();
+		else
+		{
+			str_copy(aText, "0,40000,45000,50000");
+			if(Custom >= 1)
+				str_format(aText, sizeof(aText), "0,40000,45000,50000,%d", Custom);
+			Start(aText);
+		}
+	}
+}
+
 void CMenus::RenderServerbrowserStatusBox(CUIRect StatusBox, bool WasListboxItemActivated)
 {
 	// Render bar that shows the loading progression.
@@ -509,7 +792,7 @@ void CMenus::RenderServerbrowserStatusBox(CUIRect StatusBox, bool WasListboxItem
 	TextRender()->SetFontPreset(EFontPreset::DEFAULT_FONT);
 
 	CUIRect SearchInfoAndAddr, ServersAndConnect, ServersPlayersOnline, SearchAndInfo, ServerAddr, ConnectButtons;
-	StatusBox.VSplitRight(135.0f, &SearchInfoAndAddr, &ServersAndConnect);
+	StatusBox.VSplitRight(182.0f, &SearchInfoAndAddr, &ServersAndConnect);
 	if(SearchInfoAndAddr.w > 350.0f)
 		SearchInfoAndAddr.VSplitLeft(350.0f, &SearchInfoAndAddr, nullptr);
 	SearchInfoAndAddr.HSplitTop(40.0f, &SearchAndInfo, &ServerAddr);
@@ -635,7 +918,28 @@ void CMenus::RenderServerbrowserStatusBox(CUIRect StatusBox, bool WasListboxItem
 
 	// buttons
 	{
-		CUIRect ButtonRefresh, ButtonConnect;
+		CUIRect ButtonTest, ButtonRefresh, ButtonConnect;
+		ConnectButtons.VSplitLeft(84.0f, &ButtonTest, &ConnectButtons);
+		ConnectButtons.VSplitLeft(5.0f, nullptr, &ConnectButtons);
+		static CButtonContainer s_TestUdp;
+		if(DoButton_Menu(&s_TestUdp, Localize("Test UDP"), 0, &ButtonTest))
+		{
+			NETADDR Server{};
+			char aAddress[128];
+			CUdpPortTest &Test = Client()->UdpPortTest();
+			const bool Valid = str_next_token(g_Config.m_UiServerAddress, ",", aAddress, sizeof(aAddress)) &&
+				(net_addr_from_str(&Server, aAddress) == 0 || net_addr_from_url(&Server, aAddress, nullptr, 0) == 0) &&
+				Server.port && (Server.type == NETTYPE_IPV4 || Server.type == NETTYPE_IPV6);
+			if(Valid || Test.Running())
+			{
+				m_UdpPopupServer = Test.Running() ? Test.Server() : Server;
+				const SPopupMenuProperties Props{.m_BackgroundColor = ColorRGBA(0.07f, 0.07f, 0.07f, 0.96f)};
+				constexpr float WIDTH = 390.0f, HEIGHT = 283.0f;
+				const float X = std::max(0.0f, ButtonTest.x + ButtonTest.w - WIDTH);
+				const float Y = std::max(0.0f, ButtonTest.y - HEIGHT - 6.0f);
+				Ui()->DoPopupMenu(&m_UdpPopupId, X, Y, WIDTH, HEIGHT, this, PopupUdpPortTest, Props);
+			}
+		}
 		ConnectButtons.VSplitMid(&ButtonRefresh, &ButtonConnect, 5.0f);
 
 		// refresh button

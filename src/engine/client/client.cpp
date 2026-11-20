@@ -26,6 +26,7 @@
 #include <base/time.h>
 #include <base/windows.h>
 
+#include <engine/shared/axion_input.h>
 #include <engine/config.h>
 #include <engine/console.h>
 #include <engine/discord.h>
@@ -68,6 +69,10 @@
 #include <game/localization.h>
 #include <game/version.h>
 
+#if defined(CONF_BACKEND_VULKAN)
+#include <engine/client/backend/vulkan/backend_vulkan.h>
+#endif
+
 #if defined(CONF_VIDEORECORDER)
 #include "video.h"
 #endif
@@ -82,6 +87,11 @@
 #include <emscripten/emscripten.h>
 #endif
 
+#if defined(CONF_FAMILY_WINDOWS)
+#include <windows.h>
+#include <psapi.h>
+#endif
+
 #include "SDL.h"
 #ifdef main
 #undef main
@@ -91,6 +101,7 @@
 #include <chrono>
 #include <iterator>
 #include <limits>
+#include <numeric>
 #include <stack>
 #include <thread>
 #include <tuple>
@@ -714,6 +725,8 @@ void CClient::Connect(const char *pAddress, const char *pPassword)
 		return;
 	}
 
+	m_UdpPortTest.StopAndWait();
+	ApplyUdpSourcePort(aConnectAddrs[0]);
 	m_ConnectionId = RandomUuid();
 	ServerInfoRequest();
 
@@ -1253,6 +1266,60 @@ void CClient::Render()
 
 	RenderDebug();
 	RenderGraphs();
+	if(g_Config.m_ClPerformanceHud)
+		RenderPerformanceHud();
+}
+
+void CClient::UpdatePerformanceHud(int64_t Now)
+{
+	if(m_RenderFrameTime <= 0.0f)
+		return;
+
+	m_aPerformanceFrameTimes[m_PerformanceFrameIndex] = m_RenderFrameTime;
+	m_PerformanceFrameIndex = (m_PerformanceFrameIndex + 1) % m_aPerformanceFrameTimes.size();
+	m_PerformanceFrameCount = std::min(m_PerformanceFrameCount + 1, m_aPerformanceFrameTimes.size());
+	if(Now < m_PerformanceNextUpdate)
+		return;
+
+	m_PerformanceNextUpdate = Now + time_freq();
+	auto aSorted = m_aPerformanceFrameTimes;
+	const auto End = aSorted.begin() + m_PerformanceFrameCount;
+	const size_t TailCount = (m_PerformanceFrameCount + 99) / 100;
+	const auto Tail = End - TailCount;
+	std::nth_element(aSorted.begin(), Tail, End);
+	const double Average = std::accumulate(aSorted.begin(), End, 0.0) / m_PerformanceFrameCount;
+	const double TailAverage = std::accumulate(Tail, End, 0.0) / TailCount;
+	str_format(m_aPerformanceHud, sizeof(m_aPerformanceHud),
+		"%.0f FPS   Avg %.2f ms   1%% low %.0f   CPU render %.2f ms",
+		1.0 / m_RenderFrameTime, Average * 1000.0, 1.0 / TailAverage, m_PerformanceCpuTimeMs);
+
+#if defined(CONF_BACKEND_VULKAN)
+	const uint64_t GpuFrameTimeNs = VulkanGpuFrameTimeNs();
+	if(GpuFrameTimeNs != 0)
+	{
+		char aGpu[48];
+		str_format(aGpu, sizeof(aGpu), "   GPU draw %.2f ms", GpuFrameTimeNs / 1000000.0);
+		str_append(m_aPerformanceHud, aGpu);
+	}
+#endif
+
+#if defined(CONF_FAMILY_WINDOWS)
+	PROCESS_MEMORY_COUNTERS Memory{};
+	if(GetProcessMemoryInfo(GetCurrentProcess(), &Memory, sizeof(Memory)))
+	{
+		char aMemory[48];
+		str_format(aMemory, sizeof(aMemory), "   RAM %.0f MiB", Memory.WorkingSetSize / (1024.0 * 1024.0));
+		str_append(m_aPerformanceHud, aMemory);
+	}
+#endif
+}
+
+void CClient::RenderPerformanceHud()
+{
+	const CScreenRect Screen = Graphics()->GetScreen();
+	Graphics()->MapScreenToSize(360.0f * Graphics()->ScreenAspect(), 360.0f);
+	TextRender()->Text(5.0f, 5.0f, 8.0f, m_aPerformanceHud);
+	Graphics()->MapScreen(Screen);
 }
 
 const char *CClient::LoadMap(const char *pName, const char *pFilename, const std::optional<SHA256_DIGEST> &WantedSha256, unsigned WantedCrc)
@@ -2697,6 +2764,7 @@ void CClient::LoadDDNetInfo()
 		NETADDR Addr;
 		if(!net_addr_from_str(&Addr, StunServersIpv6[0]))
 		{
+			m_aMainStunServers[0] = Addr;
 			m_aNetClient[CONN_MAIN].FeedStunServer(Addr);
 		}
 	}
@@ -2706,6 +2774,7 @@ void CClient::LoadDDNetInfo()
 		NETADDR Addr;
 		if(!net_addr_from_str(&Addr, StunServersIpv4[0]))
 		{
+			m_aMainStunServers[1] = Addr;
 			m_aNetClient[CONN_MAIN].FeedStunServer(Addr);
 		}
 	}
@@ -3031,7 +3100,7 @@ void CClient::Update()
 					SendInput();
 				}
 
-				if(g_Config.m_TcFastInput && GameClient()->CheckNewInput())
+				if(AxionInput::Enabled() && GameClient()->CheckNewInput())
 				{
 					Repredict = true;
 				}
@@ -3245,11 +3314,18 @@ void CClient::InitInterfaces()
 #endif
 
 	m_pConfigManager->RegisterCallback(IFavorites::ConfigSaveCallback, m_pFavorites);
+	m_pConfigManager->RegisterCallback(CUdpPortTest::Save, &m_UdpPortTest);
 	m_Friends.Init();
 	m_Foes.Init(true);
 
 	m_GhostRecorder.Init();
 	m_GhostLoader.Init();
+}
+
+static void LogStartupPhase(const char *pPhase)
+{
+	if(g_Config.m_AxionStartupProfile)
+		log_info("startup", "%s %.3f ms", pPhase, std::chrono::duration<double, std::milli>(time_get_nanoseconds()).count());
 }
 
 void CClient::Run()
@@ -3288,6 +3364,10 @@ void CClient::Run()
 		return;
 	}
 
+	LogStartupPhase("before-graphics");
+	g_Config.m_ClThreadsoundloading = 1;
+	g_Config.m_TcTeeTrail = 0;
+	g_Config.m_ClPerformanceHud = 0;
 	// init graphics
 	m_pGraphics = CreateEngineGraphicsThreaded();
 	Kernel()->RegisterInterface(m_pGraphics); // IEngineGraphics
@@ -3321,15 +3401,24 @@ void CClient::Run()
 		}
 	}
 
+	LogStartupPhase("graphics-ready");
 	// make sure the first frame just clears everything to prevent undesired colors when waiting for io
 	Graphics()->Clear(0, 0, 0);
 	Graphics()->Swap();
+
+	if(g_Config.m_AxionStartupProfile)
+	{
+		m_pGraphics->WaitForIdle();
+		LogStartupPhase("first-clear");
+	}
 
 	// init localization first, making sure all errors during init can be localized
 	GameClient()->InitializeLanguage();
 
 	// init sound, allowed to fail
+	LogStartupPhase("language-ready");
 	const bool SoundInitFailed = Sound()->Init() != 0;
+	LogStartupPhase("sound-ready");
 
 #if defined(CONF_VIDEORECORDER)
 	// init video recorder aka ffmpeg
@@ -3346,6 +3435,7 @@ void CClient::Run()
 	// init the editor
 	m_pEditor->Init();
 
+	LogStartupPhase("editor-ready");
 	m_ServerBrowser.OnInit();
 	// loads the existing ddnet info file if it exists
 	LoadDDNetInfo();
@@ -3359,6 +3449,7 @@ void CClient::Run()
 
 	Graphics()->AddWindowResizeListener([this] { OnWindowResize(); });
 
+	LogStartupPhase("before-game-init");
 	GameClient()->OnInit();
 
 	m_Fifo.Init(m_pConsole, g_Config.m_ClInputFifo, CFGFLAG_CLIENT);
@@ -3402,6 +3493,9 @@ void CClient::Run()
 
 	int64_t NextUpdateTime = time_get();
 	int64_t NextRenderTime = time_get();
+	LogStartupPhase("initialized");
+	bool StartupMenuLogged = false;
+	bool WasMeasuringPerformance = false;
 
 	while(true)
 	{
@@ -3537,7 +3631,7 @@ void CClient::Run()
 			{
 				// update frametime
 				m_RenderFrameTime = (Now - m_LastRenderTime) / (float)time_freq();
-				m_FpsGraph.Add(1.0f / m_RenderFrameTime);
+				m_FpsGraph.InsertAt(Now, 1.0f / m_RenderFrameTime);
 
 				if(m_BenchmarkFile)
 				{
@@ -3556,10 +3650,35 @@ void CClient::Run()
 
 				if(GfxRefreshRate)
 					NextRenderTime = std::max(NextRenderTime + time_freq() / GfxRefreshRate, Now);
+				const bool MeasurePerformance = g_Config.m_ClPerformanceHud != 0;
+#if defined(CONF_BACKEND_VULKAN)
+				if(MeasurePerformance != WasMeasuringPerformance)
+					VulkanSetGpuTimingEnabled(MeasurePerformance);
+#endif
+				if(MeasurePerformance && WasMeasuringPerformance)
+					UpdatePerformanceHud(Now);
+				else if(!MeasurePerformance && WasMeasuringPerformance)
+				{
+					m_PerformanceFrameCount = 0;
+					m_PerformanceFrameIndex = 0;
+					m_PerformanceNextUpdate = 0;
+					m_PerformanceCpuTimeMs = 0.0;
+					m_aPerformanceHud[0] = '\0';
+				}
 				m_LastRenderTime = Now;
 
+				const auto RenderStart = MeasurePerformance ? time_get_nanoseconds() : 0ns;
 				Render();
 				m_pGraphics->Swap();
+				if(g_Config.m_AxionStartupProfile && !StartupMenuLogged)
+				{
+					m_pGraphics->WaitForIdle();
+					LogStartupPhase("first-interactive-frame");
+					StartupMenuLogged = true;
+				}
+				if(MeasurePerformance)
+					m_PerformanceCpuTimeMs = std::chrono::duration<double, std::milli>(time_get_nanoseconds() - RenderStart).count();
+				WasMeasuringPerformance = MeasurePerformance;
 			}
 
 			// Wake up for the next update or frame, whichever comes first. While playing, also wake up for
@@ -3578,6 +3697,7 @@ void CClient::Run()
 		AutoCSV_Cleanup();
 
 		m_Fifo.Update();
+		m_UdpPortTest.Update();
 
 		if(State() == IClient::STATE_QUITTING || State() == IClient::STATE_RESTARTING)
 			break;
@@ -3627,6 +3747,7 @@ void CClient::Run()
 		m_vQuittingWarnings.emplace_back(Localize("Error saving settings"));
 	}
 
+	m_UdpPortTest.StopAndWait();
 	m_ServerBrowser.Shutdown();
 	m_Fifo.Shutdown();
 	m_pHttp->Shutdown();
@@ -3656,6 +3777,7 @@ bool CClient::InitNetworkClient(char *pError, size_t ErrorSize)
 		str_format(pError, ErrorSize, "The configured bindaddr '%s' cannot be resolved.", g_Config.m_Bindaddr);
 		return false;
 	}
+	m_NetworkBindAddress = BindAddr;
 	BindAddr.type = NETTYPE_ALL;
 	for(size_t i = 0; i < std::size(m_aNetClient); i++)
 	{
@@ -3712,7 +3834,50 @@ bool CClient::InitNetworkClientImpl(NETADDR BindAddr, int Conn, char *pError, si
 		if(BindAddr.port != 0)
 			BindAddr.port = 0;
 	}
+	if(Conn == CONN_MAIN)
+		m_MainSourcePort = BindAddr.port;
 	return true;
+}
+
+bool CClient::StartUdpPortTest(const NETADDR &Server, const char *pPorts)
+{
+	if(m_NetworkBindAddress.type && !(m_NetworkBindAddress.type & Server.type))
+		return false;
+	return m_UdpPortTest.Start(Server, m_NetworkBindAddress, pPorts);
+}
+
+void CClient::ApplyUdpSourcePort(const NETADDR &Server)
+{
+	NETADDR Endpoint = Server;
+	Endpoint.type &= ~NETTYPE_TW7;
+	const int Preferred = m_UdpPortTest.PreferredPort(Endpoint);
+	const int Default = g_Config.m_ClPort >= 1024 ? g_Config.m_ClPort : 0;
+	const int Desired = Preferred ? Preferred : Default;
+	if(Desired == m_MainSourcePort)
+		return;
+
+	NETADDR Bind = m_NetworkBindAddress;
+	Bind.type = NETTYPE_ALL;
+	Bind.port = Desired;
+	const int RequiredFamily = Endpoint.type & (NETTYPE_IPV4 | NETTYPE_IPV6);
+	if(!m_aNetClient[CONN_MAIN].Open(Bind, RequiredFamily))
+	{
+		log_warn("udp-test", "source port %d unavailable, trying the normal bind", Desired);
+		Bind.port = Default == Desired ? 0 : Default;
+		if(!m_aNetClient[CONN_MAIN].Open(Bind, RequiredFamily))
+		{
+			Bind.port = 0;
+			if(!m_aNetClient[CONN_MAIN].Open(Bind, RequiredFamily))
+				return;
+		}
+	}
+	m_MainSourcePort = Bind.port;
+	for(const NETADDR &Stun : m_aMainStunServers)
+	{
+		if(Stun.type)
+			m_aNetClient[CONN_MAIN].FeedStunServer(Stun);
+	}
+	log_info("udp-test", "main connection bound to configured source port %d", m_MainSourcePort);
 }
 
 bool CClient::CtrlShiftKey(int Key, bool &Last)
@@ -4722,6 +4887,29 @@ void CClient::RegisterCommands()
 	m_pConsole->Register("connect", "r[host|ip]", CFGFLAG_CLIENT, Con_Connect, this, "Connect to the specified host/ip");
 	m_pConsole->Register("disconnect", "", CFGFLAG_CLIENT, Con_Disconnect, this, "Disconnect from the server");
 	m_pConsole->Register("ping", "", CFGFLAG_CLIENT, Con_Ping, this, "Ping the current server");
+#if defined(CONF_FAMILY_WINDOWS)
+	m_pConsole->Register("register_shell", "", CFGFLAG_CLIENT, [](IConsole::IResult *pResult, void *pUserData) {
+		static_cast<CClient *>(pUserData)->ShellRegister();
+	}, this, "Register this installation for DDNet links and files");
+#endif
+	m_pConsole->Register("axion_udp_prefer", "s[endpoint] i[local-port]", CFGFLAG_CLIENT, [](IConsole::IResult *pResult, void *pUser) {
+		NETADDR Server;
+		if(net_addr_from_str(&Server, pResult->GetString(0)) == 0)
+			static_cast<CClient *>(pUser)->m_UdpPortTest.SetPreferredPort(Server, pResult->GetInteger(1));
+	}, this, "Save a local UDP source port for this endpoint (0 clears)");
+	m_pConsole->Register("axion_udp_test", "s[endpoint] ?r[ports]", CFGFLAG_CLIENT | CFGFLAG_STORE, [](IConsole::IResult *pResult, void *pUser) {
+		NETADDR Server;
+		if(net_addr_from_str(&Server, pResult->GetString(0)) != 0 ||
+			!static_cast<CClient *>(pUser)->StartUdpPortTest(Server, pResult->NumArguments() > 1 ? pResult->GetString(1) : g_Config.m_AxionUdpPorts))
+			log_warn("udp-test", "invalid endpoint or port list, or a test is already running");
+	}, this, "Test local UDP source ports against one DDNet endpoint");
+	m_pConsole->Register("axion_udp_cancel", "", CFGFLAG_CLIENT, [](IConsole::IResult *, void *pUser) {
+		static_cast<CClient *>(pUser)->m_UdpPortTest.Cancel();
+	}, this, "Cancel the current UDP source port test");
+	m_pConsole->Register("performance_status", "", CFGFLAG_CLIENT, [](IConsole::IResult *pResult, void *pUserData) {
+		const auto *pSelf = static_cast<CClient *>(pUserData);
+		log_info("performance", "%s", pSelf->m_aPerformanceHud[0] ? pSelf->m_aPerformanceHud : "Enable cl_performance_hud to collect frame timing.");
+	}, this, "Print the current performance diagnostics");
 	m_pConsole->Register("screenshot", "", CFGFLAG_CLIENT | CFGFLAG_STORE, Con_Screenshot, this, "Take a screenshot");
 	m_pConsole->Register("net_reset", "", CFGFLAG_CLIENT, ConNetReset, this, "Rebinds the client's listening address and port");
 
@@ -5306,11 +5494,6 @@ int main(int argc, const char **argv)
 	{
 		pFutureFileLogger->Set(log_logger_noop());
 	}
-
-	// Register protocol and file extensions
-#if defined(CONF_FAMILY_WINDOWS)
-	pClient->ShellRegister();
-#endif
 
 	// Do not automatically translate touch events to mouse events and vice versa.
 	SDL_SetHint("SDL_TOUCH_MOUSE_EVENTS", "0");

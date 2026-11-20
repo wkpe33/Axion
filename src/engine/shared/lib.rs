@@ -16,6 +16,8 @@ extern crate ddnet_test;
 
 mod config;
 mod rust_version;
+#[cfg(feature = "vulkan-presentation")]
+mod vulkan_presentation;
 
 pub use config::*;
 pub use rust_version::*;

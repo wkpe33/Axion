@@ -621,7 +621,7 @@ class CNetClient
 public:
 	NETSOCKET m_Socket = nullptr;
 	// openness
-	bool Open(NETADDR BindAddr);
+	bool Open(NETADDR BindAddr, int RequiredType = 0);
 	void Close();
 
 	// connection state

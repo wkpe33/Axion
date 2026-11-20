@@ -9,6 +9,7 @@
 #include "str.h"
 #include "windows.h"
 
+#include <atomic>
 #include <chrono>
 #include <iterator> // std::size
 #include <string_view>
@@ -41,7 +42,11 @@
 #error NOT IMPLEMENTED
 #endif
 
-static NETSTATS network_stats = {0};
+// UDP probes and gameplay may update counters on different threads.
+static std::atomic<uint64_t> gs_SentPackets{0};
+static std::atomic<uint64_t> gs_SentBytes{0};
+static std::atomic<uint64_t> gs_RecvPackets{0};
+static std::atomic<uint64_t> gs_RecvBytes{0};
 
 #ifdef CONF_PLATFORM_LINUX
 static constexpr size_t VLEN = 128;
@@ -678,7 +683,12 @@ std::string net_error_message()
 
 void net_stats(NETSTATS *stats_inout)
 {
-	*stats_inout = network_stats;
+	*stats_inout = {
+		gs_SentPackets.load(std::memory_order_relaxed),
+		gs_SentBytes.load(std::memory_order_relaxed),
+		gs_RecvPackets.load(std::memory_order_relaxed),
+		gs_RecvBytes.load(std::memory_order_relaxed),
+	};
 }
 
 int net_socket_type(NETSOCKET sock)
@@ -1140,16 +1150,16 @@ int net_udp_send(NETSOCKET sock, const NETADDR *addr, const void *data, int size
 	}
 #endif
 
-	network_stats.sent_bytes += size;
-	network_stats.sent_packets++;
+	gs_SentBytes.fetch_add(size, std::memory_order_relaxed);
+	gs_SentPackets.fetch_add(1, std::memory_order_relaxed);
 	return d;
 }
 
 int net_udp_recv(NETSOCKET sock, NETADDR *addr, unsigned char **data)
 {
 	static const auto &&update_stats = [](int bytes) {
-		network_stats.recv_bytes += bytes;
-		network_stats.recv_packets++;
+		gs_RecvBytes.fetch_add(bytes, std::memory_order_relaxed);
+		gs_RecvPackets.fetch_add(1, std::memory_order_relaxed);
 	};
 
 	int bytes = 0;

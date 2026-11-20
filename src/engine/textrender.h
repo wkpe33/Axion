@@ -116,6 +116,8 @@ struct STextColorSplit
 class CTextCursor
 {
 public:
+	void (*m_pGlyphCallback)(void *, int, const STextBoundingBox &) = nullptr;
+	void *m_pGlyphCallbackData = nullptr;
 	int m_Flags = TEXTFLAG_RENDER;
 	int m_LineCount = 1;
 	int m_GlyphCount = 0;

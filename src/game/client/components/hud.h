@@ -65,7 +65,7 @@ class CHud : public CComponent
 	STextContainerIndex m_aPlayerPositionContainers[2];
 	float m_aPlayerPrevPosition[2];
 
-	void RenderCursor();
+
 
 	void RenderTextInfo();
 	void RenderConnectionWarning();
@@ -108,6 +108,7 @@ class CHud : public CComponent
 	static constexpr float MOVEMENT_INFORMATION_LINE_HEIGHT = 8.0f;
 
 public:
+	void RenderCursor();
 	CHud();
 	int Sizeof() const override { return sizeof(*this); }
 

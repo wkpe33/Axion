@@ -5,6 +5,7 @@
 
 #include "graph.h"
 #include "smooth_time.h"
+#include "udp_port_test.h"
 
 #include <base/hash.h>
 #include <base/types.h>
@@ -25,6 +26,7 @@
 #include <engine/textrender.h>
 #include <engine/warning.h>
 
+#include <array>
 #include <chrono>
 #include <deque>
 #include <memory>
@@ -78,6 +80,10 @@ class CClient : public IClient, public CDemoPlayer::IListener
 	IUpdater *m_pUpdater = nullptr;
 
 	CNetClient m_aNetClient[NUM_CONNS];
+	CUdpPortTest m_UdpPortTest;
+	NETADDR m_NetworkBindAddress{};
+	NETADDR m_aMainStunServers[2]{};
+	int m_MainSourcePort = 0;
 	CDemoPlayer m_DemoPlayer;
 	CDemoRecorder m_aDemoRecorders[RECORDER_MAX];
 	CDemoRecorder m_aDemoRecordersSixup[RECORDER_MAX];
@@ -199,6 +205,12 @@ class CClient : public IClient, public CDemoPlayer::IListener
 	CGraph m_aInputtimeMarginGraphs[NUM_DUMMIES];
 	CGraph m_aGametimeMarginGraphs[NUM_DUMMIES];
 	CGraph m_FpsGraph;
+	std::array<float, 4096> m_aPerformanceFrameTimes{};
+	size_t m_PerformanceFrameCount = 0;
+	size_t m_PerformanceFrameIndex = 0;
+	int64_t m_PerformanceNextUpdate = 0;
+	double m_PerformanceCpuTimeMs = 0.0;
+	char m_aPerformanceHud[256]{};
 
 	// the game snapshots are modifiable by the game
 	CSnapshotStorage m_aSnapshotStorage[NUM_DUMMIES];
@@ -342,6 +354,8 @@ public:
 	// called once after being ingame for 1 second
 	void OnPostConnect(int Conn);
 
+	CUdpPortTest &UdpPortTest() override { return m_UdpPortTest; }
+	bool StartUdpPortTest(const NETADDR &Server, const char *pPorts) override;
 	void Connect(const char *pAddress, const char *pPassword = nullptr) override;
 	void DisconnectWithReason(const char *pReason);
 	void Disconnect() override;
@@ -371,6 +385,8 @@ public:
 
 	void Render();
 	void RenderDebug();
+	void UpdatePerformanceHud(int64_t Now);
+	void RenderPerformanceHud();
 	void RenderGraphs();
 
 	void Restart() override;
@@ -425,6 +441,7 @@ public:
 
 	void Run();
 
+	void ApplyUdpSourcePort(const NETADDR &Server);
 	bool InitNetworkClient(char *pError, size_t ErrorSize);
 	bool InitNetworkClientImpl(NETADDR BindAddr, int Conn, char *pError, size_t ErrorSize);
 	bool CtrlShiftKey(int Key, bool &Last);

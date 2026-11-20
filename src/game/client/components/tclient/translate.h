@@ -1,15 +1,15 @@
-#ifndef GAME_CLIENT_COMPONENTS_TCLIENT_TRANSLATE_H
-#define GAME_CLIENT_COMPONENTS_TCLIENT_TRANSLATE_H
+/* Copyright © 2026 BestProject Team */
+#ifndef GAME_CLIENT_COMPONENTS_BESTCLIENT_TRANSLATE_H
+#define GAME_CLIENT_COMPONENTS_BESTCLIENT_TRANSLATE_H
 
 #include <game/client/component.h>
 #include <game/client/components/chat.h>
 
 #include <array>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <vector>
-
-class CTranslate;
 
 class ITranslateBackend
 {
@@ -17,10 +17,8 @@ public:
 	explicit ITranslateBackend(const char *pName) :
 		m_pName(pName) {}
 	virtual ~ITranslateBackend() = default;
+
 	virtual const char *EncodeTarget(const char *pTarget) const;
-	virtual bool CompareTargets(const char *pA, const char *pB) const;
-	// Set once at construction from the matching g_aTranslateBackends entry
-	// -- backend classes don't hold their own copy of their display name.
 	const char *Name() const { return m_pName; }
 	virtual std::optional<bool> Update(CTranslateResponse &Out) = 0;
 
@@ -34,29 +32,16 @@ struct STranslateLanguage
 	const char *m_pCode;
 };
 
-// Single source of truth for every available translate backend: its config
-// value, its display name (passed into the backend's constructor so
-// ITranslateBackend::Name() never drifts from it), and the language list its
-// settings-menu dropdown should offer. Different backends genuinely support
-// different language sets (Google supports far more than a typical
-// self-hosted LibreTranslate instance), so this is per-backend rather than
-// one shared list.
 struct STranslateBackendInfo
 {
 	const char *m_pValue;
 	const char *m_pName;
 	std::vector<STranslateLanguage> m_vLanguages;
-	// Whether the settings menu should show the endpoint/API-key fields for
-	// this backend -- data-driven so the menu never has to special-case a
-	// backend by name.
 	bool m_NeedsEndpointConfig;
 };
 
-extern const std::array<STranslateBackendInfo, 2> g_aTranslateBackends;
+extern const std::array<STranslateBackendInfo, 3> g_aTranslateBackends;
 
-// Finds pCode's index in vLanguages, or whichever entry IS English (found by
-// code, not a hardcoded position) if pCode is unset/unrecognised -- stays
-// correct no matter how a language list is reordered or edited.
 int TranslateLanguageIndex(const std::vector<STranslateLanguage> &vLanguages, const char *pCode);
 
 class CTranslate : public CComponent
@@ -64,39 +49,47 @@ class CTranslate : public CComponent
 	class CTranslateJob
 	{
 	public:
-		std::unique_ptr<ITranslateBackend> m_pBackend = nullptr;
-		// For chat translations
-		CChat::CLine *m_pLine = nullptr;
-		std::shared_ptr<CTranslateResponse> m_pTranslateResponse = nullptr;
-		// For outgoing translations (translating our own message before sending it)
-		bool m_IsOutgoing = false;
-		int m_OutgoingTeam = 0;
-		char m_aOutgoingOriginalText[256] = "";
-	};
-	std::vector<CTranslateJob> m_vJobs;
+		enum class EType
+		{
+			CHAT_LINE,
+			OUTGOING_CHAT,
+		};
 
-	static void ConTranslate(IConsole::IResult *pResult, void *pUserData);
-	static void ConTranslateId(IConsole::IResult *pResult, void *pUserData);
+		EType m_Type = EType::CHAT_LINE;
+		std::unique_ptr<ITranslateBackend> m_pBackend;
+		CChat::CLine *m_pLine = nullptr;
+		std::shared_ptr<CTranslateResponse> m_pTranslateResponse;
+		int m_Team = 0;
+		char m_aTextToTranslate[MAX_CHAT_LENGTH] = "";
+		char m_aOutgoingPrefix[MAX_CHAT_LENGTH] = "";
+		bool m_RespectIgnoredIncomingLanguages = false;
+		int64_t m_Deadline = 0;
+	};
+
+	std::vector<CTranslateJob> m_vJobs;
+	int64_t m_NextRequestTime = 0;
+
+	std::unique_ptr<ITranslateBackend> CreateBackend(const char *pText, const char *pSourceLanguage, const char *pTargetLanguage) const;
+	const char *IncomingSourceLanguage() const;
+	const char *IncomingTargetLanguage() const;
+	const char *OutgoingSourceLanguage() const;
+	const char *OutgoingTargetLanguage() const;
+	bool IsIgnoredIncomingLanguage(const char *pLanguage) const;
+	bool ShouldTranslateOutgoingChat(const char *pText) const;
+	bool CanStartRequest() const;
+	void TranslateLine(CChat::CLine &Line, bool RespectIgnoredIncomingLanguages);
 
 public:
 	int Sizeof() const override { return sizeof(*this); }
 
 	void OnConsoleInit() override;
 	void OnRender() override;
-
-	void Translate(int Id, bool ShowProgress = true);
-	void Translate(const char *pName, bool ShowProgress = true);
-	void Translate(CChat::CLine &Line, bool ShowProgress = true);
+	void OnStateChange(int NewState, int OldState) override;
 
 	void AutoTranslate(CChat::CLine &Line);
-
-	// If outgoing translation applies to pText (enabled, non-empty, not a
-	// "/"-prefixed command), queues a translate job that sends the result
-	// (or the original text if translation fails) as a chat message, and
-	// returns true. Returns false if the caller should send pText itself --
-	// mirrors CTClient::ChatDoSpecId's shape so chat.cpp can chain it as
-	// another "else if" instead of a nested block.
+	void TranslateMessage(CChat::CLine &Line);
 	bool ChatDoTranslateOutgoing(int Team, const char *pText);
+	void ToggleShiftClick();
 };
 
 #endif

@@ -1822,6 +1822,8 @@ public:
 				int Character = NextCharacter;
 				NextCharacter = str_utf8_decode(&pTmp);
 
+				if(IsRendered && Character == '\n' && pCursor->m_pGlyphCallback)
+					pCursor->m_pGlyphCallback(pCursor->m_pGlyphCallbackData, Character, {DrawX, DrawY, 0, 0});
 				if(Character == '\n')
 				{
 					if((pCursor->m_Flags & TEXTFLAG_DISALLOW_NEWLINE) == 0)
@@ -2053,6 +2055,8 @@ public:
 					else
 						DrawX += Advance + CharKerning;
 
+					if(IsRendered && pCursor->m_pGlyphCallback)
+						pCursor->m_pGlyphCallback(pCursor->m_pGlyphCallbackData, Character, {SelX, DrawY, SelWidth, pCursor->m_AlignedFontSize + pCursor->m_AlignedLineSpacing});
 					pCursor->m_GlyphCount++;
 
 					if(SelectionStarted && IsRendered)

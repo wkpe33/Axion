@@ -1,3 +1,4 @@
+#include <game/client/components/axion_hud_layout.h>
 /* (c) Magnus Auvinen. See licence.txt in the root of the distribution for more information. */
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 #include "infomessages.h"
@@ -309,6 +310,7 @@ void CInfoMessages::OnRaceFinishMessage(const CNetMsg_Sv_RaceFinish *pMsg)
 
 void CInfoMessages::RenderKillMsg(const CInfoMsg &InfoMsg, float x, float y)
 {
+	const float Right = x;
 	ColorRGBA TextColor;
 	if(InfoMsg.m_VictimDDTeam)
 		TextColor = GameClient()->GetDDTeamColor(InfoMsg.m_VictimDDTeam, 0.75f);
@@ -397,10 +399,13 @@ void CInfoMessages::RenderKillMsg(const CInfoMsg &InfoMsg, float x, float y)
 			TextRender()->RenderTextContainer(InfoMsg.m_KillerTextContainerIndex, TextColor, TextRender()->DefaultTextOutlineColor(), x, y + (ROW_HEIGHT - FONT_SIZE) / 2.0f);
 		}
 	}
+	const auto Screen = Graphics()->GetScreen();
+	AxionHud::Record(AxionHud::KILLFEED, {x - 8.0f, y, Right - x + 8.0f, ROW_HEIGHT}, Screen.Width(), Screen.Height());
 }
 
 void CInfoMessages::RenderFinishMsg(const CInfoMsg &InfoMsg, float x, float y)
 {
+	const float Right = x;
 	// render time diff
 	if(InfoMsg.m_DiffTextContainerIndex.Valid())
 	{
@@ -439,6 +444,8 @@ void CInfoMessages::RenderFinishMsg(const CInfoMsg &InfoMsg, float x, float y)
 	const vec2 TeeRenderPos = vec2(x, y + ROW_HEIGHT / 2.0f + OffsetToMid.y);
 	const int Emote = InfoMsg.m_RecordPersonal ? EMOTE_HAPPY : EMOTE_NORMAL;
 	RenderTools()->RenderTee(CAnimState::GetIdle(), &InfoMsg.m_apVictimManagedTeeRenderInfos[0]->TeeRenderInfo(), Emote, vec2(-1, 0), TeeRenderPos);
+	const auto Screen = Graphics()->GetScreen();
+	AxionHud::Record(AxionHud::KILLFEED, {x - 24.0f, y, Right - x + 24.0f, ROW_HEIGHT}, Screen.Width(), Screen.Height());
 }
 
 void CInfoMessages::OnRender()
@@ -450,6 +457,7 @@ void CInfoMessages::OnRender()
 	const float Width = Height * Graphics()->ScreenAspect();
 
 	Graphics()->MapScreenToSize(Width, Height);
+	AxionHud::CScope Layout(Graphics(), AxionHud::KILLFEED);
 	Graphics()->SetColor(1.0f, 1.0f, 1.0f, 1.0f);
 
 	int Showfps = g_Config.m_ClShowfps;

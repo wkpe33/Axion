@@ -42,6 +42,10 @@ void CParticles::OnReset()
 
 void CParticles::Add(int Group, CParticle *pPart, float TimePassed)
 {
+	if(!GameClient()->m_Effects.Enabled(AxionPresentation::EEffect::Particles) ||
+		(pPart->m_Spr == SPRITE_PART_SMOKE && !GameClient()->m_Effects.Enabled(AxionPresentation::EEffect::Smoke)))
+		return;
+
 	if(GameClient()->IsWorldPaused() || GameClient()->IsDemoPlaybackPaused())
 	{
 		return;

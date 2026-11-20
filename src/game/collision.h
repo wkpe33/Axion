@@ -57,6 +57,7 @@ public:
 	// DDRace
 	void SetCollisionAt(float x, float y, int Index);
 	void SetDoorCollisionAt(float x, float y, unsigned char Type, unsigned char Flags, unsigned char Number);
+	void SetExtraDoorTiles(const CDoorTile *pTiles) { m_pExtraDoorTiles = pTiles; }
 	void GetDoorTile(int Index, CDoorTile *pDoorTile) const;
 	int GetFrontCollisionAt(float x, float y) const { return GetFrontTile(round_to_int(x), round_to_int(y)); }
 	int IntersectNoLaser(vec2 Pos0, vec2 Pos1, vec2 *pOutCollision, vec2 *pOutBeforeCollision) const;
@@ -159,6 +160,7 @@ private:
 	CSwitchTile *m_pSwitch;
 	CTuneTile *m_pTune;
 	CDoorTile *m_pDoor;
+	const CDoorTile *m_pExtraDoorTiles = nullptr;
 
 	// TILE_TELEIN
 	std::map<int, std::vector<vec2>> m_TeleIns;

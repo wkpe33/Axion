@@ -1,3 +1,4 @@
+#include <game/client/components/axion_hud_layout.h>
 /* (c) Magnus Auvinen. See licence.txt in the root of the distribution for more information. */
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 #include "broadcast.h"
@@ -58,6 +59,7 @@ void CBroadcast::RenderServerBroadcast()
 	const float Height = 300.0f;
 	const float Width = Height * Graphics()->ScreenAspect();
 	Graphics()->MapScreenToSize(Width, Height);
+	AxionHud::CScope Layout(Graphics(), AxionHud::BROADCAST);
 
 	if(m_BroadcastRenderOffset < 0.0f)
 		m_BroadcastRenderOffset = Width / 2.0f - TextRender()->TextWidth(12.0f, m_aBroadcastText, -1, Width) / 2.0f;
@@ -72,6 +74,8 @@ void CBroadcast::RenderServerBroadcast()
 	}
 	if(m_TextContainerIndex.Valid())
 	{
+		const auto Box = TextRender()->GetBoundingBoxTextContainer(m_TextContainerIndex);
+		AxionHud::Record(AxionHud::BROADCAST, {Box.m_X, Box.m_Y, Box.m_W, Box.m_H}, Width, Height);
 		const float Alpha = SecondsRemaining >= 1.0f ? 1.0f : SecondsRemaining;
 		ColorRGBA TextColor = TextRender()->DefaultTextColor();
 		TextColor.a *= Alpha;

@@ -539,6 +539,7 @@ public:
 	void SetEnabled(bool Enabled) { m_Enabled = Enabled; }
 	bool Enabled() const { return m_Enabled; }
 	void Update();
+	void UpdateCursor(); // Shared menu/chat cursor update; does not change input focus.
 	void DebugRender(float X, float Y);
 
 	vec2 MousePos() const { return m_MousePos; }

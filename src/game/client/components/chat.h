@@ -15,6 +15,7 @@
 #include <game/client/component.h>
 #include <game/client/lineinput.h>
 #include <game/client/render.h>
+#include <game/client/ui.h>
 
 #include <vector>
 
@@ -22,6 +23,7 @@ class CTranslateResponse
 {
 public:
 	bool m_Error = false;
+	bool m_Shown = true;
 	char m_Text[1024] = "";
 	char m_Language[16] = "";
 };
@@ -40,12 +42,22 @@ class CChat : public CComponent
 	};
 
 	CLineInputBuffered<MAX_CHAT_LENGTH> m_Input;
+	CLineInputBuffered<MAX_CHAT_LENGTH> m_SearchInput;
+	bool m_SearchActive = false;
+	void SetHistorySearch(bool Active);
 	class CLine
 	{
 	public:
 		CLine();
 		void Reset(CChat &This);
 
+		struct SGlyph { CUIRect m_Rect; int m_Start, m_End, m_Codepoint, m_Part; };
+		std::vector<SGlyph> m_vGlyphs;
+		std::string m_SelectableText;
+		char m_aReplyName[64] = {};
+		int m_CollectPart = 0;
+		bool m_Visible = false;
+		float m_VisibleOffset = 0;
 		bool m_Initialized;
 		int64_t m_Time;
 		float m_aYOffset[2];
@@ -71,6 +83,36 @@ class CChat : public CComponent
 
 		std::shared_ptr<CTranslateResponse> m_pTranslateResponse;
 	};
+
+	int m_SelectedLine = -1, m_SelectionAnchor = 0, m_SelectionEnd = 0;
+	int64_t m_SelectedTime = 0, m_LastHistoryClick = 0;
+	bool m_HistoryDragging = false;
+	int m_HistoryScroll = 0;
+	int m_HistoryMenu = 0;
+	int m_TranslateHoverLine = -1;
+	SPopupMenuId m_TranslateSettingsPopupId;
+	int m_TranslateMessageButtonToggle = 0;
+	int m_TranslateSettingsOutgoingButton = 0;
+	int m_TranslateSettingsPunctuationButton = 0;
+	CUIRect m_TranslateButtonRect = {}, m_TranslateButtonUiRect = {};
+	bool m_TranslateButtonRectValid = false;
+	bool m_TranslateButtonPressed = false;
+	bool m_TranslateSettingsInputActive = false;
+	void OpenTranslateSettingsPopup();
+	void RenderTranslateSettingsButton(const CUIRect &ButtonRect);
+	static CUi::EPopupMenuFunctionResult PopupTranslateSettings(void *pContext, CUIRect View, bool Active);
+	CUIRect m_HistoryMenuRect = {};
+	char m_aHistoryReply[64] = {};
+	std::string m_LastReplyPrefix;
+	vec2 HistoryMouse() const;
+	bool HistoryInput(const IInput::CEvent &Event);
+	bool MatchesHistorySearch(const CLine &Line) const;
+	void RenderHistorySelection(CLine &Line);
+	void RenderHistoryMenu();
+	void ResetHistoryInteraction();
+	void CopyHistorySelection();
+	void UpdateHistoryDrag();
+	static void CollectHistoryGlyph(void *pData, int Codepoint, const STextBoundingBox &Rect);
 
 	bool m_PrevScoreBoardShowed;
 	bool m_PrevShowChat;
@@ -226,5 +268,6 @@ public:
 	//
 	// It uses team or public chat depending on m_Mode.
 	void SendChatQueued(const char *pLine);
+	void SendTranslatedChatQueued(int Team, const char *pLine);
 };
 #endif

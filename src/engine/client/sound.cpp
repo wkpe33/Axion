@@ -64,11 +64,18 @@ void CSound::Mix(short *pFinalOut, unsigned Frames)
 	m_SoundLock.lock();
 
 	const int MasterVol = m_SoundVolume.load(std::memory_order_relaxed);
+	const bool MuteInactive = m_MuteInactive.load(std::memory_order_relaxed);
 
 	for(auto &Voice : m_aVoices)
 	{
 		if(!Voice.m_pSample)
 			continue;
+
+		if(MuteInactive && !(Voice.m_Flags & ISound::FLAG_BACKGROUND))
+		{
+			AdvanceVoice(Voice, Frames);
+			continue;
+		}
 
 		// mix voice
 		int *pOut = m_pMixBuffer;
@@ -378,10 +385,8 @@ void CSound::AdvancePlayback()
 
 void CSound::UpdateVolume()
 {
-	int WantedVolume = g_Config.m_SndVolume;
-	if(!m_pGraphics->WindowActive() && g_Config.m_SndNonactiveMute)
-		WantedVolume = 0;
-	m_SoundVolume.store(WantedVolume, std::memory_order_relaxed);
+	m_SoundVolume.store(g_Config.m_SndVolume, std::memory_order_relaxed);
+	m_MuteInactive.store(g_Config.m_SndNonactiveMute && !m_pGraphics->WindowActive(), std::memory_order_relaxed);
 }
 
 void CSound::Shutdown()

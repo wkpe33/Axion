@@ -32,6 +32,9 @@ void CMenus::RenderSettingsGraphics(CUIRect MainView)
 	static int s_GfxFsaaSamples = g_Config.m_GfxFsaaSamples;
 	static bool s_GfxBackendChanged = false;
 	static bool s_GfxGpuChanged = false;
+#if defined(CONF_BACKEND_VULKAN)
+	static const int s_InitRustVulkan = g_Config.m_GfxRustVulkan;
+#endif
 
 	static int s_InitDisplayAllVideoModes = g_Config.m_GfxDisplayAllVideoModes;
 
@@ -208,11 +211,6 @@ void CMenus::RenderSettingsGraphics(CUIRect MainView)
 			CheckSettings = true;
 		}
 	}
-
-	MainView.HSplitTop(20.0f, &Button, &MainView);
-	if(DoButton_CheckBox(&g_Config.m_GfxHighDetail, Localize("High Detail"), g_Config.m_GfxHighDetail, &Button))
-		g_Config.m_GfxHighDetail ^= 1;
-	GameClient()->m_Tooltips.DoToolTip(&g_Config.m_GfxHighDetail, &Button, Localize("Allows maps to render with more detail"));
 
 	MainView.HSplitTop(20.0f, &Button, &MainView);
 	if(DoButton_CheckBox(&g_Config.m_ClShowfps, Localize("Show FPS"), g_Config.m_ClShowfps, &Button))
@@ -404,11 +402,26 @@ void CMenus::RenderSettingsGraphics(CUIRect MainView)
 		}
 	}
 
+#if defined(CONF_BACKEND_VULKAN)
+	if(str_comp_nocase(g_Config.m_GfxBackend, "Vulkan") == 0)
+	{
+		MainView.HSplitTop(20.0f, &Button, &MainView);
+		if(DoButton_CheckBox(&g_Config.m_GfxRustVulkan, Localize("Experimental Rust Vulkan presentation"), g_Config.m_GfxRustVulkan, &Button))
+		{
+			g_Config.m_GfxRustVulkan ^= 1;
+			CheckSettings = true;
+		}
+	}
+#endif
+
 	// check if the new settings require a restart
 	if(CheckSettings)
 	{
 		m_NeedRestartGraphics = !(s_GfxFsaaSamples == g_Config.m_GfxFsaaSamples &&
 					  !s_GfxBackendChanged &&
 					  !s_GfxGpuChanged);
+#if defined(CONF_BACKEND_VULKAN)
+		m_NeedRestartGraphics |= s_InitRustVulkan != g_Config.m_GfxRustVulkan;
+#endif
 	}
 }

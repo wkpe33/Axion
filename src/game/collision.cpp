@@ -147,6 +147,7 @@ void CCollision::Init(class CLayers *pLayers)
 
 void CCollision::Unload()
 {
+	m_pExtraDoorTiles = nullptr;
 	m_pTiles = nullptr;
 	m_Width = 0;
 	m_Height = 0;
@@ -302,6 +303,12 @@ int CCollision::GetMoveRestrictions(CALLBACK_SWITCHACTIVE pfnSwitchActive, void 
 				pfnSwitchActive(DoorTile.m_Number, pUser))
 			{
 				Restrictions |= ::GetMoveRestrictions(d, DoorTile.m_Index, DoorTile.m_Flags);
+			}
+			if(m_pExtraDoorTiles)
+			{
+				const CDoorTile &ExtraTile = m_pExtraDoorTiles[ModMapIndex];
+				if(ExtraTile.m_Index && (int)ExtraTile.m_Number <= m_HighestSwitchNumber && pfnSwitchActive(ExtraTile.m_Number, pUser))
+					Restrictions |= ::GetMoveRestrictions(d, ExtraTile.m_Index, ExtraTile.m_Flags);
 			}
 		}
 	}

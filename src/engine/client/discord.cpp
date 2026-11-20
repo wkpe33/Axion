@@ -1,7 +1,5 @@
 #include <base/dbg.h>
 #include <base/mem.h>
-#include <base/net.h>
-#include <base/secure.h>
 #include <base/str.h>
 #include <base/time.h>
 
@@ -37,8 +35,7 @@ class CDiscord : public IDiscord
 	bool m_UpdateActivity = false;
 	int64_t m_LastActivityUpdate = 0;
 
-	IDiscordCore *m_pCore;
-	IDiscordActivityEvents m_ActivityEvents;
+	IDiscordCore *m_pCore = nullptr;
 	IDiscordActivityManager *m_pActivityManager;
 
 	FDiscordCreate m_pfnDiscordCreate;
@@ -49,7 +46,8 @@ public:
 	{
 		m_pfnDiscordCreate = pfnDiscordCreate;
 		m_Enabled = false;
-		return InitDiscord();
+		ClearGameInfo();
+		return false;
 	}
 	bool InitDiscord()
 	{
@@ -62,19 +60,10 @@ public:
 		if(!m_Enabled)
 			return false;
 
-		mem_zero(&m_ActivityEvents, sizeof(m_ActivityEvents));
-
-		m_ActivityEvents.on_activity_join = &CDiscord::OnActivityJoin;
-		m_pActivityManager = nullptr;
-
 		DiscordCreateParams Params;
 		DiscordCreateParamsSetDefault(&Params);
-
-		// Params.client_id = 752165779117441075; // DDNet
-		Params.client_id = 1325361453988970527; // TClient
+		Params.client_id = 1464646068699660451;
 		Params.flags = EDiscordCreateFlags::DiscordCreateFlags_NoRequireDiscord;
-		Params.event_data = this;
-		Params.activity_events = &m_ActivityEvents;
 
 		int Error = m_pfnDiscordCreate(DISCORD_VERSION, &Params, &m_pCore);
 
@@ -86,12 +75,7 @@ public:
 
 		m_pActivityManager = m_pCore->get_activity_manager(m_pCore);
 
-		// which application to launch when joining activity
-		m_pActivityManager->register_command(m_pActivityManager, CONNECTLINK_DOUBLE_SLASH);
-		m_pActivityManager->register_steam(m_pActivityManager, 412220); // steam id
-
-		ClearGameInfo();
-
+		m_UpdateActivity = true;
 		return false;
 	}
 
@@ -122,40 +106,27 @@ public:
 	{
 		mem_zero(&m_Activity, sizeof(DiscordActivity));
 
-		str_copy(m_Activity.assets.large_image, "tclient_logo");
-		str_copy(m_Activity.assets.large_text, "TClient logo");
+		str_copy(m_Activity.assets.large_image, "axion");
+		str_copy(m_Activity.assets.large_text, "Axion");
 		m_Activity.timestamps.start = time_timestamp();
-		str_copy(m_Activity.details, "Offline");
+		str_copy(m_Activity.details, "In the main menu");
 		m_Activity.instance = false;
 
 		m_UpdateActivity = true;
 	}
 
-	void SetGameInfo(const CServerInfo &ServerInfo, bool Registered) override
+	void SetGameInfo(const CServerInfo &ServerInfo, bool) override
 	{
 		mem_zero(&m_Activity, sizeof(DiscordActivity));
 
-		str_copy(m_Activity.assets.large_image, "tclient_logo");
-		str_copy(m_Activity.assets.large_text, "TClient logo");
+		str_copy(m_Activity.assets.large_image, "axion");
+		str_copy(m_Activity.assets.large_text, "Axion");
 		m_Activity.timestamps.start = time_timestamp();
 		str_copy(m_Activity.name, "Online");
 		m_Activity.instance = true;
 
-		str_copy(m_Activity.details, ServerInfo.m_aName);
+		str_copy(m_Activity.details, "Playing Axion");
 		str_copy(m_Activity.state, ServerInfo.m_aMap);
-		m_Activity.party.size.current_size = ServerInfo.m_NumClients;
-		m_Activity.party.size.max_size = ServerInfo.m_MaxClients;
-		// private makes it so the game isn't public to join, but there's 'Ask to Join' button instead
-		m_Activity.party.privacy = Registered ? DiscordActivityPartyPrivacy_Public : DiscordActivityPartyPrivacy_Private;
-
-		if(!Registered)
-		{
-			// private parties have random id to not leak the server ip
-			char aPartyId[sizeof(m_Activity.party.id)];
-			secure_random_password(aPartyId, sizeof(aPartyId), 64);
-			str_copy(m_Activity.party.id, aPartyId);
-		}
-		UpdateServerIp(ServerInfo);
 
 		m_UpdateActivity = true;
 	}
@@ -165,59 +136,13 @@ public:
 		if(!m_Activity.instance)
 			return;
 
-		UpdateServerIp(ServerInfo);
-
-		str_copy(m_Activity.details, ServerInfo.m_aName);
+		if(str_comp(m_Activity.state, ServerInfo.m_aMap) == 0)
+			return;
 		str_copy(m_Activity.state, ServerInfo.m_aMap);
-		m_Activity.party.size.max_size = ServerInfo.m_MaxClients;
 		m_UpdateActivity = true;
 	}
 
-	void UpdatePlayerCount(int Count) override
-	{
-		if(!m_Activity.instance)
-			return;
-
-		if(m_Activity.party.size.current_size == Count)
-			return;
-
-		m_Activity.party.size.current_size = Count;
-		m_UpdateActivity = true;
-	}
-
-	void UpdateServerIp(const CServerInfo &ServerInfo)
-	{
-		if(!m_Activity.instance)
-			return;
-
-		// secret is only shared when player is joining the game, or when they are invited for private games
-		if(str_length(ServerInfo.m_aAddress) < (int)sizeof(m_Activity.secrets.join))
-		{
-			str_copy(m_Activity.secrets.join, ServerInfo.m_aAddress);
-		}
-		else
-		{
-			char aAddr[NETADDR_MAXSTRSIZE];
-			net_addr_str(&ServerInfo.m_aAddresses[0], aAddr, sizeof(aAddr), true);
-			str_copy(m_Activity.secrets.join, aAddr);
-		}
-
-		if(m_Activity.party.privacy == DiscordActivityPartyPrivacy_Public)
-		{
-			// id is sha256, because it didn't work with the ':' character
-			char aPartyId[SHA256_MAXSTRSIZE];
-			SHA256_DIGEST PartyIdSha256 = sha256(m_Activity.secrets.join, str_length(m_Activity.secrets.join));
-			sha256_str(PartyIdSha256, aPartyId, sizeof(aPartyId));
-			str_copy(m_Activity.party.id, aPartyId);
-		}
-	}
-
-	static void DISCORD_CALLBACK OnActivityJoin(void *pEventData, const char *pSecret)
-	{
-		CDiscord *pSelf = static_cast<CDiscord *>(pEventData);
-		IClient *pClient = pSelf->Kernel()->RequestInterface<IClient>();
-		pClient->Connect(pSecret);
-	}
+	void UpdatePlayerCount(int) override {}
 
 	~CDiscord() override
 	{

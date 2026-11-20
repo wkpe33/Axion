@@ -90,6 +90,7 @@ namespace FontIcon
 	inline const char *const UNDO = "\uF2EA";
 	inline const char *const USER = "\uF007";
 	inline const char *const VIDEO = "\uF03D";
+	inline const char *const CHECK = "\uF00C";
 	inline const char *const XMARK = "\uF00D";
 
 	// TClient

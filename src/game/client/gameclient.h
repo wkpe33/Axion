@@ -45,6 +45,9 @@
 #include "components/freezebars.h"
 #include "components/ghost.h"
 #include "components/hud.h"
+#include "components/axion_overlay.h"
+#include "components/fast_practice.h"
+#include "components/axion_moving_tile_prediction.h"
 #include "components/important_alert.h"
 #include "components/infomessages.h"
 #include "components/items.h"
@@ -189,6 +192,10 @@ public:
 	CCountryFlags m_CountryFlags;
 	CFlow m_Flow;
 	CHud m_Hud;
+	friend class CFastPractice;
+	CFastPractice m_FastPractice;
+	CAxionOverlay m_AxionOverlay;
+	CAxionMovingTilePrediction m_AxionMovingTilePrediction;
 	CImportantAlert m_ImportantAlert;
 	CDebugHud m_DebugHud;
 	CControls m_Controls;
@@ -404,6 +411,7 @@ public:
 		const CNetObj_SpectatorInfo *m_pSpectatorInfo;
 		const CNetObj_SpectatorInfo *m_pPrevSpectatorInfo;
 		const CNetObj_SpectatorCount *m_pSpectatorCount;
+		bool m_aSpectatorWatchers[MAX_CLIENTS];
 		int m_NumFlags;
 		const CNetObj_Flag *m_apFlags[CSnapshot::MAX_ITEMS];
 		const CNetObj_Flag *m_apPrevFlags[CSnapshot::MAX_ITEMS];
@@ -687,6 +695,7 @@ public:
 	void OnPredict() override;
 	void OnActivateEditor() override;
 	void OnDummySwap() override;
+	int SnapInputRaw(int *pData, bool Dummy, bool Force);
 	int OnSnapInput(int *pData, bool Dummy, bool Force) override;
 	void OnShutdown() override;
 	void OnEnterGame() override;
@@ -734,7 +743,7 @@ public:
 	bool GotWantedSkin7(bool Dummy);
 	void SendInfo(bool Start);
 	void SendDummyInfo(bool Start) override;
-	void SendKill() const;
+	void SendKill();
 	void SendReadyChange7(); // NOLINT(readability-make-member-function-const)
 
 	void ApplyPreInputs(int Tick, bool Direct, CGameWorld &GameWorld);
@@ -748,6 +757,7 @@ public:
 	CNetObj_PlayerInput m_DummyInput;
 	CNetObj_PlayerInput m_HammerInput;
 	unsigned int m_DummyFire;
+	bool m_ReceivedAxionPreInput = false;
 	bool m_ReceivedDDNetPlayer;
 	bool m_ReceivedDDNetPlayerFinishTimes;
 	bool m_ReceivedDDNetPlayerFinishTimesMillis;

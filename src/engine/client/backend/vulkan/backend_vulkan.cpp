@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdlib>
@@ -51,6 +52,34 @@ static thread_local bool s_ThreadIsRenderWorker = false;
 #endif
 
 using namespace std::chrono_literals;
+
+static std::atomic<bool> s_VulkanGpuTimingEnabled{false};
+static std::atomic<uint64_t> s_VulkanGpuTimeNs{0};
+
+void VulkanSetGpuTimingEnabled(bool Enabled)
+{
+	s_VulkanGpuTimingEnabled.store(Enabled, std::memory_order_relaxed);
+	if(!Enabled)
+		s_VulkanGpuTimeNs.store(0, std::memory_order_relaxed);
+}
+
+uint64_t VulkanGpuFrameTimeNs()
+{
+	return s_VulkanGpuTimeNs.load(std::memory_order_relaxed);
+}
+
+struct CAxionVulkanPresentation;
+extern "C" {
+CAxionVulkanPresentation *axion_vk_presentation_create(VkDevice Device, PFN_vkGetDeviceProcAddr pGetProc, const char *pCachePath, uint32_t VendorId, uint32_t DeviceId, const uint8_t *pCacheUuid);
+void axion_vk_presentation_destroy(CAxionVulkanPresentation *pPresentation);
+VkPipelineCache axion_vk_pipeline_cache(const CAxionVulkanPresentation *pPresentation);
+VkResult axion_vk_swapchain_create(const CAxionVulkanPresentation *pPresentation, const VkSwapchainCreateInfoKHR *pInfo, VkSwapchainKHR *pSwapChain);
+void axion_vk_swapchain_destroy(const CAxionVulkanPresentation *pPresentation, VkSwapchainKHR SwapChain);
+VkResult axion_vk_swapchain_images(const CAxionVulkanPresentation *pPresentation, VkSwapchainKHR SwapChain, uint32_t *pCount, VkImage *pImages);
+VkResult axion_vk_acquire_image(const CAxionVulkanPresentation *pPresentation, VkSwapchainKHR SwapChain, VkSemaphore Semaphore, uint32_t *pIndex);
+VkResult axion_vk_queue_present(const CAxionVulkanPresentation *pPresentation, VkQueue Queue, const VkPresentInfoKHR *pInfo);
+}
+
 
 class CCommandProcessorFragment_Vulkan : public CCommandProcessorFragment_GLBase
 {
@@ -587,26 +616,6 @@ class CCommandProcessorFragment_Vulkan : public CCommandProcessorFragment_GLBase
 		}
 	};
 
-	struct SShaderModule
-	{
-		VkShaderModule m_VertShaderModule = VK_NULL_HANDLE;
-		VkShaderModule m_FragShaderModule = VK_NULL_HANDLE;
-
-		VkDevice m_VKDevice = VK_NULL_HANDLE;
-
-		~SShaderModule()
-		{
-			if(m_VKDevice != VK_NULL_HANDLE)
-			{
-				if(m_VertShaderModule != VK_NULL_HANDLE)
-					vkDestroyShaderModule(m_VKDevice, m_VertShaderModule, nullptr);
-
-				if(m_FragShaderModule != VK_NULL_HANDLE)
-					vkDestroyShaderModule(m_VKDevice, m_FragShaderModule, nullptr);
-			}
-		}
-	};
-
 	enum EVulkanBackendAddressModes
 	{
 		VULKAN_BACKEND_ADDRESS_MODE_REPEAT = 0,
@@ -825,11 +834,6 @@ class CCommandProcessorFragment_Vulkan : public CCommandProcessorFragment_GLBase
 		SUPPORTED_SAMPLER_TYPE_COUNT,
 	};
 
-	struct SShaderFileCache
-	{
-		std::vector<uint8_t> m_vBinary;
-	};
-
 	struct SSwapImgViewportExtent
 	{
 		VkExtent2D m_SwapImageViewport;
@@ -864,7 +868,7 @@ class CCommandProcessorFragment_Vulkan : public CCommandProcessorFragment_GLBase
 	 * MEMBER VARIABLES
 	 ************************/
 
-	std::unordered_map<std::string, SShaderFileCache> m_ShaderFiles;
+	std::unordered_map<std::string, VkShaderModule> m_ShaderModules;
 
 	SMemoryBlockCache<STAGING_BUFFER_CACHE_ID> m_StagingBufferCache;
 	SMemoryBlockCache<STAGING_BUFFER_IMAGE_CACHE_ID> m_StagingBufferCacheImage;
@@ -928,7 +932,7 @@ class CCommandProcessorFragment_Vulkan : public CCommandProcessorFragment_GLBase
 
 	std::array<VkSampler, SUPPORTED_SAMPLER_TYPE_COUNT> m_aSamplers;
 
-	class IStorage *m_pStorage;
+	class IStorage *m_pStorage = nullptr;
 
 	struct SDelayedBufferCleanupItem
 	{
@@ -1043,6 +1047,14 @@ private:
 	std::vector<SDeviceDescriptorPools> m_vUniformBufferDescrPools;
 
 	VkSwapchainKHR m_VKSwapChain = VK_NULL_HANDLE;
+	VkQueryPool m_GpuTimestampPool = VK_NULL_HANDLE;
+	uint32_t m_GpuTimestampBits = 0;
+	float m_GpuTimestampPeriod = 0.0f;
+	bool m_GpuTimestampPoolFailed = false;
+	bool m_RecordGpuTime = false;
+	std::vector<bool> m_vGpuTimestampRecorded;
+	std::unique_ptr<CAxionVulkanPresentation, decltype(&axion_vk_presentation_destroy)> m_pRustVulkan{nullptr, axion_vk_presentation_destroy};
+	bool m_UseRustPresentation = false;
 	std::vector<VkImage> m_vSwapChainImages;
 	uint32_t m_SwapChainImageCount = 0;
 
@@ -1858,7 +1870,6 @@ protected:
 		MemAllocInfo.memoryTypeIndex = FindMemoryType(m_VKGPU, RequiredMemoryTypeBits, BufferProperties);
 
 		BufferMemory.m_Size = RequiredSize;
-		m_pTextureMemoryUsage->store(m_pTextureMemoryUsage->load(std::memory_order_relaxed) + RequiredSize, std::memory_order_relaxed);
 
 		if(IsVerbose())
 		{
@@ -1871,6 +1882,7 @@ protected:
 			return false;
 		}
 
+		m_pTextureMemoryUsage->fetch_add(RequiredSize, std::memory_order_relaxed);
 		BufferMemory.m_UsageType = EMemoryBlockUsage::TEXTURE;
 
 		return true;
@@ -2029,7 +2041,7 @@ protected:
 			if(BufferMem.m_UsageType == EMemoryBlockUsage::BUFFER)
 				m_pBufferMemoryUsage->store(m_pBufferMemoryUsage->load(std::memory_order_relaxed) - BufferMem.m_Size, std::memory_order_relaxed);
 			else if(BufferMem.m_UsageType == EMemoryBlockUsage::TEXTURE)
-				m_pTextureMemoryUsage->store(m_pTextureMemoryUsage->load(std::memory_order_relaxed) - BufferMem.m_Size, std::memory_order_relaxed);
+				m_pTextureMemoryUsage->fetch_sub(BufferMem.m_Size, std::memory_order_relaxed);
 			else if(BufferMem.m_UsageType == EMemoryBlockUsage::STREAM)
 				m_pStreamMemoryUsage->store(m_pStreamMemoryUsage->load(std::memory_order_relaxed) - BufferMem.m_Size, std::memory_order_relaxed);
 			else if(BufferMem.m_UsageType == EMemoryBlockUsage::STAGING)
@@ -2152,7 +2164,7 @@ protected:
 			FreedMemory += ImageBufferCache.second.Shrink(m_VKDevice);
 		if(FreedMemory > 0)
 		{
-			m_pTextureMemoryUsage->store(m_pTextureMemoryUsage->load(std::memory_order_relaxed) - FreedMemory, std::memory_order_relaxed);
+			m_pTextureMemoryUsage->fetch_sub(FreedMemory, std::memory_order_relaxed);
 			if(IsVerbose())
 			{
 				log_debug("gfx/vulkan", "Deallocated chunks of memory with size %" PRIzu " from all frames (texture).", FreedMemory);
@@ -2276,6 +2288,48 @@ protected:
 		ShrinkUnusedCaches();
 	}
 
+	void BeginGpuFrameTiming(VkCommandBuffer CommandBuffer)
+	{
+		m_RecordGpuTime = false;
+		if(!s_VulkanGpuTimingEnabled.load(std::memory_order_relaxed) ||
+			m_GpuTimestampBits == 0 || m_GpuTimestampPoolFailed)
+			return;
+
+		if(m_GpuTimestampPool == VK_NULL_HANDLE)
+		{
+			VkQueryPoolCreateInfo Info{};
+			Info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+			Info.queryType = VK_QUERY_TYPE_TIMESTAMP;
+			Info.queryCount = m_SwapChainImageCount * 2;
+			if(vkCreateQueryPool(m_VKDevice, &Info, nullptr, &m_GpuTimestampPool) != VK_SUCCESS)
+			{
+				m_GpuTimestampPool = VK_NULL_HANDLE;
+				m_GpuTimestampPoolFailed = true;
+				return;
+			}
+			m_vGpuTimestampRecorded.assign(m_SwapChainImageCount, false);
+		}
+
+		const uint32_t FirstQuery = m_CurImageIndex * 2;
+		if(m_vGpuTimestampRecorded[m_CurImageIndex])
+		{
+			std::array<uint64_t, 2> aTimestamps{};
+			// The image's existing submit fence has been waited on. Never wait for profiling.
+			if(vkGetQueryPoolResults(m_VKDevice, m_GpuTimestampPool, FirstQuery, 2,
+				   sizeof(aTimestamps), aTimestamps.data(), sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS)
+			{
+				const uint64_t Mask = std::numeric_limits<uint64_t>::max() >> (64 - m_GpuTimestampBits);
+				const uint64_t Ticks = (aTimestamps[1] - aTimestamps[0]) & Mask;
+				s_VulkanGpuTimeNs.store(static_cast<uint64_t>(Ticks * static_cast<double>(m_GpuTimestampPeriod)), std::memory_order_relaxed);
+			}
+			m_vGpuTimestampRecorded[m_CurImageIndex] = false;
+		}
+
+		vkCmdResetQueryPool(CommandBuffer, m_GpuTimestampPool, FirstQuery, 2);
+		vkCmdWriteTimestamp(CommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, m_GpuTimestampPool, FirstQuery);
+		m_RecordGpuTime = true;
+	}
+
 	[[nodiscard]] bool WaitFrame()
 	{
 		FinishRenderThreads();
@@ -2319,6 +2373,8 @@ protected:
 		}
 
 		vkCmdEndRenderPass(CommandBuffer);
+		if(m_RecordGpuTime)
+			vkCmdWriteTimestamp(CommandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_GpuTimestampPool, m_CurImageIndex * 2 + 1);
 
 		if(vkEndCommandBuffer(CommandBuffer) != VK_SUCCESS)
 		{
@@ -2370,6 +2426,9 @@ protected:
 			}
 		}
 
+		if(m_RecordGpuTime && QueueSubmitRes == VK_SUCCESS)
+			m_vGpuTimestampRecorded[m_CurImageIndex] = true;
+
 		std::swap(m_vBusyAcquireImageSemaphores[m_CurImageIndex], m_AcquireImageSemaphore);
 
 		VkPresentInfoKHR PresentInfo{};
@@ -2386,7 +2445,9 @@ protected:
 
 		m_LastPresentedSwapChainImageIndex = m_CurImageIndex;
 
-		VkResult QueuePresentRes = vkQueuePresentKHR(m_VKPresentQueue, &PresentInfo);
+		VkResult QueuePresentRes = m_UseRustPresentation ?
+			axion_vk_queue_present(m_pRustVulkan.get(), m_VKPresentQueue, &PresentInfo) :
+			vkQueuePresentKHR(m_VKPresentQueue, &PresentInfo);
 		if(QueuePresentRes != VK_SUCCESS && QueuePresentRes != VK_SUBOPTIMAL_KHR)
 		{
 			const char *pCritErrorMsg = CheckVulkanCriticalError(QueuePresentRes);
@@ -2402,46 +2463,51 @@ protected:
 
 	[[nodiscard]] bool PrepareFrame()
 	{
-		if(m_RecreateSwapChain)
+		VkResult AcquireResult = VK_ERROR_OUT_OF_DATE_KHR;
+		for(int Attempt = 0; Attempt < 2; ++Attempt)
 		{
-			m_RecreateSwapChain = false;
-			if(IsVerbose())
-			{
-				log_debug("gfx/vulkan", "Recreating swap chain requested by user (prepare frame).");
-			}
-			RecreateSwapChain();
-		}
-
-		auto AcqResult = vkAcquireNextImageKHR(m_VKDevice, m_VKSwapChain, std::numeric_limits<uint64_t>::max(), m_AcquireImageSemaphore, VK_NULL_HANDLE, &m_CurImageIndex);
-		if(AcqResult != VK_SUCCESS)
-		{
-			if(AcqResult == VK_ERROR_OUT_OF_DATE_KHR || m_RecreateSwapChain)
+			if(m_RecreateSwapChain)
 			{
 				m_RecreateSwapChain = false;
-				if(IsVerbose())
+				if(RecreateSwapChain() != 0)
 				{
-					log_debug("gfx/vulkan", "Recreating swap chain requested by acquire next image (prepare frame).");
-				}
-				RecreateSwapChain();
-				return PrepareFrame();
-			}
-			else
-			{
-				const char *pCritErrorMsg = CheckVulkanCriticalError(AcqResult);
-				if(pCritErrorMsg != nullptr)
-				{
-					SetError(EGfxErrorType::GFX_ERROR_TYPE_SWAP_FAILED, "Acquiring next image failed.", pCritErrorMsg);
+					SetError(EGfxErrorType::GFX_ERROR_TYPE_SWAP_FAILED, "Recreating the swap chain failed.");
 					return false;
 				}
-				else if(AcqResult == VK_ERROR_SURFACE_LOST_KHR)
-				{
-					m_RenderingPaused = true;
-					return true;
-				}
 			}
+
+			AcquireResult = m_UseRustPresentation ?
+				axion_vk_acquire_image(m_pRustVulkan.get(), m_VKSwapChain, m_AcquireImageSemaphore, &m_CurImageIndex) :
+				vkAcquireNextImageKHR(m_VKDevice, m_VKSwapChain, std::numeric_limits<uint64_t>::max(), m_AcquireImageSemaphore, VK_NULL_HANDLE, &m_CurImageIndex);
+			if(AcquireResult != VK_ERROR_OUT_OF_DATE_KHR)
+				break;
+			m_RecreateSwapChain = true;
 		}
 
-		vkWaitForFences(m_VKDevice, 1, &m_vQueueSubmitFences[m_CurImageIndex], VK_TRUE, std::numeric_limits<uint64_t>::max());
+		if(AcquireResult == VK_ERROR_SURFACE_LOST_KHR)
+		{
+			CheckVulkanCriticalError(AcquireResult);
+			m_RenderingPaused = true;
+			return true;
+		}
+		if(AcquireResult == VK_SUBOPTIMAL_KHR)
+		{
+			CheckVulkanCriticalError(AcquireResult);
+		}
+		else if(AcquireResult != VK_SUCCESS)
+		{
+			const char *pError = CheckVulkanCriticalError(AcquireResult);
+			SetError(EGfxErrorType::GFX_ERROR_TYPE_SWAP_FAILED, "Acquiring next image failed.", pError ? pError : "Swap chain remained out of date.");
+			return false;
+		}
+
+		const VkResult WaitResult = vkWaitForFences(m_VKDevice, 1, &m_vQueueSubmitFences[m_CurImageIndex], VK_TRUE, std::numeric_limits<uint64_t>::max());
+		if(WaitResult != VK_SUCCESS)
+		{
+			const char *pError = CheckVulkanCriticalError(WaitResult);
+			SetError(EGfxErrorType::GFX_ERROR_TYPE_SWAP_FAILED, "Waiting for the previous frame failed.", pError ? pError : "Vulkan fence wait failed.");
+			return false;
+		}
 
 		// next frame
 		m_CurFrame++;
@@ -2475,6 +2541,8 @@ protected:
 			SetError(EGfxErrorType::GFX_ERROR_TYPE_RENDER_RECORDING, "Command buffer cannot be filled anymore.");
 			return false;
 		}
+
+		BeginGpuFrameTiming(CommandBuffer);
 
 		VkRenderPassBeginInfo RenderPassInfo{};
 		RenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -3965,6 +4033,10 @@ public:
 
 		m_VKGPU = CurDevice;
 		m_VKGraphicsQueueIndex = QueueNodeIndex;
+		m_GpuTimestampBits = vQueuePropList[QueueNodeIndex].timestampValidBits;
+		VkPhysicalDeviceProperties Properties;
+		vkGetPhysicalDeviceProperties(CurDevice, &Properties);
+		m_GpuTimestampPeriod = Properties.limits.timestampPeriod;
 		return true;
 	}
 
@@ -4320,26 +4392,39 @@ public:
 		SwapInfo.oldSwapchain = OldSwapChain;
 
 		m_VKSwapChain = VK_NULL_HANDLE;
-		VkResult SwapchainCreateRes = vkCreateSwapchainKHR(m_VKDevice, &SwapInfo, nullptr, &m_VKSwapChain);
-		const char *pCritErrorMsg = CheckVulkanCriticalError(SwapchainCreateRes);
-		if(pCritErrorMsg != nullptr)
+		const VkResult SwapchainCreateRes = m_UseRustPresentation ?
+			axion_vk_swapchain_create(m_pRustVulkan.get(), &SwapInfo, &m_VKSwapChain) :
+			vkCreateSwapchainKHR(m_VKDevice, &SwapInfo, nullptr, &m_VKSwapChain);
+		if(SwapchainCreateRes != VK_SUCCESS)
 		{
-			SetError(EGfxErrorType::GFX_ERROR_TYPE_INIT, "Creating the swap chain failed.", pCritErrorMsg);
-			return false;
-		}
-		else if(SwapchainCreateRes == VK_ERROR_NATIVE_WINDOW_IN_USE_KHR)
-		{
+			const char *pError = CheckVulkanCriticalError(SwapchainCreateRes);
+			SetError(EGfxErrorType::GFX_ERROR_TYPE_INIT, "Creating the swap chain failed.", pError ? pError : "Vulkan swap chain creation failed.");
 			return false;
 		}
 
 		return true;
 	}
 
+	void DestroySwapChainHandle(VkSwapchainKHR SwapChain)
+	{
+		if(m_UseRustPresentation)
+			axion_vk_swapchain_destroy(m_pRustVulkan.get(), SwapChain);
+		else
+			vkDestroySwapchainKHR(m_VKDevice, SwapChain, nullptr);
+	}
+
+	VkResult GetSwapChainImages(uint32_t *pCount, VkImage *pImages)
+	{
+		return m_UseRustPresentation ?
+			axion_vk_swapchain_images(m_pRustVulkan.get(), m_VKSwapChain, pCount, pImages) :
+			vkGetSwapchainImagesKHR(m_VKDevice, m_VKSwapChain, pCount, pImages);
+	}
+
 	void DestroySwapChain(bool ForceDestroy)
 	{
 		if(ForceDestroy)
 		{
-			vkDestroySwapchainKHR(m_VKDevice, m_VKSwapChain, nullptr);
+			DestroySwapChainHandle(m_VKSwapChain);
 			m_VKSwapChain = VK_NULL_HANDLE;
 		}
 	}
@@ -4347,7 +4432,7 @@ public:
 	[[nodiscard]] bool GetSwapChainImageHandles()
 	{
 		uint32_t ImgCount = 0;
-		if(vkGetSwapchainImagesKHR(m_VKDevice, m_VKSwapChain, &ImgCount, nullptr) != VK_SUCCESS)
+		if(GetSwapChainImages(&ImgCount, nullptr) != VK_SUCCESS)
 		{
 			SetError(EGfxErrorType::GFX_ERROR_TYPE_INIT, "Could not get swap chain images.");
 			return false;
@@ -4356,7 +4441,7 @@ public:
 		m_SwapChainImageCount = ImgCount;
 
 		m_vSwapChainImages.resize(ImgCount);
-		if(vkGetSwapchainImagesKHR(m_VKDevice, m_VKSwapChain, &ImgCount, m_vSwapChainImages.data()) != VK_SUCCESS)
+		if(GetSwapChainImages(&ImgCount, m_vSwapChainImages.data()) != VK_SUCCESS)
 		{
 			SetError(EGfxErrorType::GFX_ERROR_TYPE_INIT, "Could not get swap chain images.");
 			return false;
@@ -4628,22 +4713,6 @@ public:
 		m_vFramebufferList.clear();
 	}
 
-	[[nodiscard]] bool CreateShaderModule(const std::vector<uint8_t> &vCode, VkShaderModule &ShaderModule)
-	{
-		VkShaderModuleCreateInfo CreateInfo{};
-		CreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-		CreateInfo.codeSize = vCode.size();
-		CreateInfo.pCode = (const uint32_t *)(vCode.data());
-
-		if(vkCreateShaderModule(m_VKDevice, &CreateInfo, nullptr, &ShaderModule) != VK_SUCCESS)
-		{
-			SetError(EGfxErrorType::GFX_ERROR_TYPE_INIT, "Shader module was not created.");
-			return false;
-		}
-
-		return true;
-	}
-
 	[[nodiscard]] bool CreateDescriptorSetLayouts()
 	{
 		VkDescriptorSetLayoutBinding SamplerLayoutBinding{};
@@ -4679,65 +4748,39 @@ public:
 		vkDestroyDescriptorSetLayout(m_VKDevice, m_Standard3DTexturedDescriptorSetLayout, nullptr);
 	}
 
-	[[nodiscard]] bool LoadShader(const char *pFilename, std::vector<uint8_t> *&pvShaderData)
+	[[nodiscard]] bool LoadShaderStage(const char *pFilename, VkShaderStageFlagBits Stage, VkPipelineShaderStageCreateInfo &StageInfo)
 	{
-		auto ShaderFileIterator = m_ShaderFiles.find(pFilename);
-		if(ShaderFileIterator == m_ShaderFiles.end())
+		auto It = m_ShaderModules.find(pFilename);
+		if(It == m_ShaderModules.end())
 		{
-			void *pShaderBuff;
-			unsigned FileSize;
-			if(!m_pStorage->ReadFile(pFilename, IStorage::TYPE_ALL, &pShaderBuff, &FileSize))
+			void *pCode;
+			unsigned Size;
+			if(!m_pStorage->ReadFile(pFilename, IStorage::TYPE_ALL, &pCode, &Size))
+			{
+				SetError(EGfxErrorType::GFX_ERROR_TYPE_INIT, "A shader file could not load correctly.");
 				return false;
+			}
 
-			std::vector<uint8_t> vShaderBuff;
-			vShaderBuff.resize(FileSize);
-			mem_copy(vShaderBuff.data(), pShaderBuff, FileSize);
-			free(pShaderBuff);
-
-			ShaderFileIterator = m_ShaderFiles.insert({pFilename, {std::move(vShaderBuff)}}).first;
+			VkShaderModuleCreateInfo Info{};
+			Info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+			Info.codeSize = Size;
+			Info.pCode = static_cast<const uint32_t *>(pCode);
+			VkShaderModule Module = VK_NULL_HANDLE;
+			const bool Created = Size > 0 && Size % sizeof(uint32_t) == 0 && vkCreateShaderModule(m_VKDevice, &Info, nullptr, &Module) == VK_SUCCESS;
+			free(pCode);
+			if(!Created)
+			{
+				SetError(EGfxErrorType::GFX_ERROR_TYPE_INIT, "Shader module was not created.");
+				return false;
+			}
+			It = m_ShaderModules.emplace(pFilename, Module).first;
 		}
 
-		pvShaderData = &ShaderFileIterator->second.m_vBinary;
-
-		return true;
-	}
-
-	[[nodiscard]] bool CreateShaders(const char *pVertName, const char *pFragName, VkPipelineShaderStageCreateInfo (&aShaderStages)[2], SShaderModule &ShaderModule)
-	{
-		bool ShaderLoaded = true;
-
-		std::vector<uint8_t> *pvVertBuff;
-		std::vector<uint8_t> *pvFragBuff;
-		ShaderLoaded &= LoadShader(pVertName, pvVertBuff);
-		ShaderLoaded &= LoadShader(pFragName, pvFragBuff);
-
-		ShaderModule.m_VKDevice = m_VKDevice;
-
-		if(!ShaderLoaded)
-		{
-			SetError(EGfxErrorType::GFX_ERROR_TYPE_INIT, "A shader file could not load correctly.");
-			return false;
-		}
-
-		if(!CreateShaderModule(*pvVertBuff, ShaderModule.m_VertShaderModule))
-			return false;
-
-		if(!CreateShaderModule(*pvFragBuff, ShaderModule.m_FragShaderModule))
-			return false;
-
-		VkPipelineShaderStageCreateInfo &VertShaderStageInfo = aShaderStages[0];
-		VertShaderStageInfo = {};
-		VertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-		VertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
-		VertShaderStageInfo.module = ShaderModule.m_VertShaderModule;
-		VertShaderStageInfo.pName = "main";
-
-		VkPipelineShaderStageCreateInfo &FragShaderStageInfo = aShaderStages[1];
-		FragShaderStageInfo = {};
-		FragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-		FragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-		FragShaderStageInfo.module = ShaderModule.m_FragShaderModule;
-		FragShaderStageInfo.pName = "main";
+		StageInfo = {};
+		StageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+		StageInfo.stage = Stage;
+		StageInfo.module = It->second;
+		StageInfo.pName = "main";
 		return true;
 	}
 
@@ -4812,8 +4855,8 @@ public:
 		EVulkanBackendBlendModes BlendMode, EVulkanBackendClipModes DynamicMode, bool IsLinePrim = false)
 	{
 		VkPipelineShaderStageCreateInfo aShaderStages[2];
-		SShaderModule Module;
-		if(!CreateShaders(pVertName, pFragName, aShaderStages, Module))
+		if(!LoadShaderStage(pVertName, VK_SHADER_STAGE_VERTEX_BIT, aShaderStages[0]) ||
+			!LoadShaderStage(pFragName, VK_SHADER_STAGE_FRAGMENT_BIT, aShaderStages[1]))
 			return false;
 
 		bool HasSampler = TexMode == VULKAN_BACKEND_TEXTURE_MODE_TEXTURED;
@@ -4889,7 +4932,8 @@ public:
 			PipelineInfo.pDynamicState = &DynamicStateCreate;
 		}
 
-		if(vkCreateGraphicsPipelines(m_VKDevice, VK_NULL_HANDLE, 1, &PipelineInfo, nullptr, &Pipeline) != VK_SUCCESS)
+		const VkPipelineCache PipelineCache = m_pRustVulkan ? axion_vk_pipeline_cache(m_pRustVulkan.get()) : VK_NULL_HANDLE;
+		if(vkCreateGraphicsPipelines(m_VKDevice, PipelineCache, 1, &PipelineInfo, nullptr, &Pipeline) != VK_SUCCESS)
 		{
 			SetError(EGfxErrorType::GFX_ERROR_TYPE_INIT, "Creating the graphic pipeline failed.");
 			return false;
@@ -5539,6 +5583,15 @@ public:
 
 	void CleanupVulkanSwapChain(bool ForceSwapChainDestruct)
 	{
+		if(m_GpuTimestampPool != VK_NULL_HANDLE)
+		{
+			vkDestroyQueryPool(m_VKDevice, m_GpuTimestampPool, nullptr);
+			m_GpuTimestampPool = VK_NULL_HANDLE;
+			m_vGpuTimestampRecorded.clear();
+		}
+		m_RecordGpuTime = false;
+		s_VulkanGpuTimeNs.store(0, std::memory_order_relaxed);
+
 		m_StandardPipeline.Destroy(m_VKDevice);
 		m_StandardLinePipeline.Destroy(m_VKDevice);
 		m_Standard3DPipeline.Destroy(m_VKDevice);
@@ -5657,6 +5710,10 @@ public:
 		if(m_VKInstance != VK_NULL_HANDLE)
 		{
 			DestroySurface();
+			for(const auto &Shader : m_ShaderModules)
+				vkDestroyShaderModule(m_VKDevice, Shader.second, nullptr);
+			m_ShaderModules.clear();
+			m_pRustVulkan.reset();
 			vkDestroyDevice(m_VKDevice, nullptr);
 
 			if(g_Config.m_DbgGfx == DEBUG_GFX_MODE_MINIMUM || g_Config.m_DbgGfx == DEBUG_GFX_MODE_ALL)
@@ -5702,7 +5759,7 @@ public:
 
 		if(OldSwapChain != VK_NULL_HANDLE)
 		{
-			vkDestroySwapchainKHR(m_VKDevice, OldSwapChain, nullptr);
+			DestroySwapChainHandle(OldSwapChain);
 		}
 
 		if(Ret != 0 && IsVerbose())
@@ -5745,6 +5802,8 @@ public:
 
 		if(!CreateLogicalDevice(vVKLayers))
 			return -1;
+
+
 
 		GetDeviceQueue();
 
@@ -6713,6 +6772,21 @@ public:
 		}
 
 		m_pStorage = pCommand->m_pStorage;
+		{
+			VkPhysicalDeviceProperties Properties{};
+			vkGetPhysicalDeviceProperties(m_VKGPU, &Properties);
+			m_pStorage->CreateFolder("cache", IStorage::TYPE_SAVE);
+			char aRelative[128], aCachePath[IO_MAX_PATH_LENGTH];
+			str_format(aRelative, sizeof(aRelative), "cache/axion-vulkan-%08x-%08x-%08x.bin",
+				Properties.vendorID, Properties.deviceID, Properties.driverVersion);
+			m_pStorage->GetCompletePath(IStorage::TYPE_SAVE, aRelative, aCachePath, sizeof(aCachePath));
+			m_pRustVulkan.reset(axion_vk_presentation_create(m_VKDevice, vkGetDeviceProcAddr, aCachePath, Properties.vendorID, Properties.deviceID, Properties.pipelineCacheUUID));
+			m_UseRustPresentation = g_Config.m_GfxRustVulkan && m_pRustVulkan != nullptr;
+			if(m_UseRustPresentation)
+				log_info("gfx/vulkan", "Using Rust Vulkan presentation.");
+			else if(g_Config.m_GfxRustVulkan)
+				log_warn("gfx/vulkan", "Rust Vulkan presentation could not load device functions. Using C++ presentation.");
+		}
 		if(InitVulkan<true>() != 0)
 		{
 			*pCommand->m_pInitError = -2;

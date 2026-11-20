@@ -924,6 +924,29 @@ void CGraphics_Threaded::QuadsTex3DDrawTL(const CQuadItem *pArray, int Num)
 	QuadsDrawTLImpl(m_aVerticesTex3D, pArray, Num);
 }
 
+void CGraphics_Threaded::QuadsTex3DDrawFreeform(const CFreeformItem *pArray, int Num)
+{
+ dbg_assert(m_Drawing == EDrawing::QUADS, "Freeform array tiles require QuadsTex3DBegin");
+ const bool Triangles = g_Config.m_GfxQuadAsTriangle && !m_GLUseTrianglesAsQuad;
+ const int Order[] = {0,1,3,0,3,2};
+ const int QuadOrder[] = {0,1,3,2};
+ const float Index = Uses2DTextureArrays() ? m_CurIndex : (m_CurIndex + 0.5f) / 256.0f;
+ for(int i = 0; i < Num; ++i)
+ {
+  const vec2 Points[] = {{pArray[i].m_X0,pArray[i].m_Y0},{pArray[i].m_X1,pArray[i].m_Y1},{pArray[i].m_X2,pArray[i].m_Y2},{pArray[i].m_X3,pArray[i].m_Y3}};
+  const int Count = Triangles ? 6 : 4;
+  for(int j = 0; j < Count; ++j)
+  {
+   const int Corner = Triangles ? Order[j] : QuadOrder[j];
+   auto &Vertex = m_aVerticesTex3D[m_NumVertices+j];
+   Vertex.m_Pos.x = Points[Corner].x; Vertex.m_Pos.y = Points[Corner].y;
+   Vertex.m_Tex.u = m_aTexture[Corner].u; Vertex.m_Tex.v = m_aTexture[Corner].v; Vertex.m_Tex.w = Index;
+   Vertex.m_Color = m_aColor[Corner];
+  }
+  AddVertices(Count, m_aVerticesTex3D);
+ }
+}
+
 void CGraphics_Threaded::QuadsDrawFreeform(const CFreeformItem *pArray, int Num)
 {
 	dbg_assert(m_Drawing == EDrawing::QUADS || m_Drawing == EDrawing::TRIANGLES, "called Graphics()->QuadsDrawFreeform without begin");
@@ -2207,7 +2230,7 @@ int CGraphics_Threaded::IssueInit()
 		Flags |= IGraphicsBackend::INITFLAG_VSYNC;
 	}
 
-	const int Result = m_pBackend->Init("TClient", &g_Config.m_GfxScreen, &g_Config.m_GfxScreenWidth, &g_Config.m_GfxScreenHeight, &g_Config.m_GfxScreenRefreshRate, &g_Config.m_GfxFsaaSamples, Flags, &m_DesktopSize.x, &m_DesktopSize.y, &m_ScreenWidth, &m_ScreenHeight, m_pStorage);
+	const int Result = m_pBackend->Init("Axion client", &g_Config.m_GfxScreen, &g_Config.m_GfxScreenWidth, &g_Config.m_GfxScreenHeight, &g_Config.m_GfxScreenRefreshRate, &g_Config.m_GfxFsaaSamples, Flags, &m_DesktopSize.x, &m_DesktopSize.y, &m_ScreenWidth, &m_ScreenHeight, m_pStorage);
 	m_DrawableWidth = m_ScreenWidth;
 	m_DrawableHeight = m_ScreenHeight;
 	AddBackEndWarningIfExists();

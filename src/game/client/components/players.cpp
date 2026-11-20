@@ -174,6 +174,8 @@ void CPlayers::RenderHookCollLine(
 	const CNetObj_Character *pPlayerChar,
 	int ClientId)
 {
+	AxionPresentation::COwnerScope Owner(ClientId);
+	if(!GameClient()->m_Effects.Enabled(AxionPresentation::EEffect::HookCollision)) return;
 	// TClient
 	if(ClientId >= 0 && GameClient()->m_aClients[ClientId].m_IsVolleyBall)
 		return;
@@ -495,6 +497,8 @@ void CPlayers::RenderHook(
 	int ClientId,
 	float Intra)
 {
+	AxionPresentation::COwnerScope Owner(ClientId);
+	if(!GameClient()->m_Effects.Enabled(AxionPresentation::EEffect::Hook)) return;
 	if(pPlayerChar->m_HookState <= 0)
 		return;
 
@@ -600,6 +604,7 @@ void CPlayers::RenderPlayer(
 	float Intra,
 	bool RenderGhost)
 {
+	AxionPresentation::COwnerScope Owner(ClientId);
 	CNetObj_Character Prev;
 	CNetObj_Character Player;
 	Prev = *pPrevChar;
@@ -786,9 +791,9 @@ void CPlayers::RenderPlayer(
 	}
 
 	const float HammerAnimationTimeScale = 5.0f;
-	if(Player.m_Weapon == WEAPON_HAMMER)
+	if(Player.m_Weapon == WEAPON_HAMMER && GameClient()->m_Effects.Enabled(AxionPresentation::EEffect::HammerSwing))
 		State.Add(&g_pData->m_aAnimations[ANIM_HAMMER_SWING], std::clamp(LastAttackTime * HammerAnimationTimeScale, 0.0f, 1.0f), 1.0f);
-	if(Player.m_Weapon == WEAPON_NINJA)
+	if(Player.m_Weapon == WEAPON_NINJA && GameClient()->m_Effects.Enabled(AxionPresentation::EEffect::NinjaSwing))
 		State.Add(&g_pData->m_aAnimations[ANIM_NINJA_SWING], std::clamp(LastAttackTime * 2.0f, 0.0f, 1.0f), 1.0f);
 
 	// do skidding
@@ -921,7 +926,7 @@ void CPlayers::RenderPlayer(
 				Graphics()->RenderQuadContainerAsSprite(m_WeaponEmoteQuadContainerIndex, QuadOffset, WeaponPosition.x, WeaponPosition.y);
 
 				// HADOKEN
-				if(AttackTime <= 1.0f / 6.0f && g_pData->m_Weapons.m_aId[CurrentWeapon].m_NumSpriteMuzzles)
+				if(GameClient()->m_Effects.Enabled(AxionPresentation::EEffect::NinjaMuzzle) && AttackTime <= 1.0f / 6.0f && g_pData->m_Weapons.m_aId[CurrentWeapon].m_NumSpriteMuzzles)
 				{
 					int IteX = rand() % g_pData->m_Weapons.m_aId[CurrentWeapon].m_NumSpriteMuzzles;
 					static int s_LastIteX = IteX;
@@ -980,7 +985,7 @@ void CPlayers::RenderPlayer(
 			if(Player.m_Weapon == WEAPON_GUN || Player.m_Weapon == WEAPON_SHOTGUN)
 			{
 				// check if we're firing stuff
-				if(g_pData->m_Weapons.m_aId[CurrentWeapon].m_NumSpriteMuzzles) // prev.attackticks)
+				if(GameClient()->m_Effects.Enabled(CurrentWeapon == WEAPON_SHOTGUN ? AxionPresentation::EEffect::ShotgunMuzzle : AxionPresentation::EEffect::GunMuzzle) && g_pData->m_Weapons.m_aId[CurrentWeapon].m_NumSpriteMuzzles) // prev.attackticks)
 				{
 					float AlphaMuzzle = 0.0f;
 					if(AttackTicksPassed < g_pData->m_Weapons.m_aId[CurrentWeapon].m_Muzzleduration + 3.0f)
@@ -1118,6 +1123,10 @@ void CPlayers::RenderPlayer(
 
 inline bool CPlayers::IsPlayerInfoAvailable(int ClientId) const
 {
+	const auto &Practice = GameClient()->m_FastPractice;
+	if(Practice.ForcePredictPlayers())
+		return Practice.IsPracticeParticipant(ClientId) && Practice.PracticeWorld().GetCharacterById(ClientId);
+
 	return GameClient()->m_Snap.m_aCharacters[ClientId].m_Active &&
 	       GameClient()->m_Snap.m_apPrevPlayerInfos[ClientId] != nullptr &&
 	       GameClient()->m_Snap.m_apPlayerInfos[ClientId] != nullptr;
@@ -1138,7 +1147,17 @@ void CPlayers::OnRender()
 
 		// predict freeze skin only for local players
 		bool Frozen = false;
-		if(i == GameClient()->m_aLocalIds[0] || i == GameClient()->m_aLocalIds[1])
+		if(GameClient()->m_FastPractice.ForcePredictPlayers() && GameClient()->m_FastPractice.IsPracticeParticipant(i))
+		{
+			Frozen = GameClient()->m_FastPractice.ShouldShowPracticeFrozenSkin(i);
+			if(Frozen)
+				aRenderInfo[i].m_TeeRenderFlags |= TEE_EFFECT_FROZEN | TEE_NO_WEAPON;
+			if(GameClient()->m_aClients[i].m_Predicted.m_LiveFrozen)
+				aRenderInfo[i].m_TeeRenderFlags |= TEE_EFFECT_FROZEN;
+			if(GameClient()->m_aClients[i].m_Predicted.m_Invincible)
+				aRenderInfo[i].m_TeeRenderFlags |= TEE_EFFECT_SPARKLE;
+		}
+		else if(i == GameClient()->m_aLocalIds[0] || i == GameClient()->m_aLocalIds[1])
 		{
 			if(GameClient()->m_aClients[i].m_Predicted.m_FreezeEnd != 0)
 				aRenderInfo[i].m_TeeRenderFlags |= TEE_EFFECT_FROZEN | TEE_NO_WEAPON;

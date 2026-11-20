@@ -14,6 +14,7 @@
 #include <engine/graphics.h>
 #include <engine/http.h>
 #include <engine/shared/config.h>
+#include <engine/shared/axion_texture_limits.h>
 #include <engine/storage.h>
 
 #include <generated/client_data.h>
@@ -243,6 +244,9 @@ int CSkins::SkinScan(const char *pName, int IsDir, int StorageType, void *pUser)
 		return 0;
 	}
 
+	// TYPE_ALL may enumerate the same name in user and packaged paths.
+	if(pSelf->m_Skins.contains(aSkinName)) return 0;
+
 	CSkinContainer SkinContainer(pSelf, aSkinName, CSkinContainer::EType::LOCAL, StorageType);
 	auto &&pSkinContainer = std::make_unique<CSkinContainer>(std::move(SkinContainer));
 	pSkinContainer->SetState(pSkinContainer->DetermineInitialState());
@@ -300,6 +304,11 @@ bool CSkins::LoadSkinData(const char *pName, CSkinLoadData &Data) const
 		Data.m_Info.Free();
 		return false;
 	}
+	// Bound HD sheets in the loading job before metrics/grayscale/sprite uploads.
+	const auto [SkinWidth, SkinHeight] = AxionBoundImage(Data.m_Info.m_Width, Data.m_Info.m_Height, 512, 256,
+		g_pData->m_aSprites[SPRITE_TEE_BODY].m_pSet->m_Gridx, g_pData->m_aSprites[SPRITE_TEE_BODY].m_pSet->m_Gridy);
+	if(SkinWidth != (int)Data.m_Info.m_Width || SkinHeight != (int)Data.m_Info.m_Height)
+		ResizeImage(Data.m_Info, SkinWidth, SkinHeight);
 	const size_t BodyWidth = g_pData->m_aSprites[SPRITE_TEE_BODY].m_W * (Data.m_Info.m_Width / g_pData->m_aSprites[SPRITE_TEE_BODY].m_pSet->m_Gridx);
 	const size_t BodyHeight = g_pData->m_aSprites[SPRITE_TEE_BODY].m_H * (Data.m_Info.m_Height / g_pData->m_aSprites[SPRITE_TEE_BODY].m_pSet->m_Gridy);
 	if(BodyWidth > Data.m_Info.m_Width || BodyHeight > Data.m_Info.m_Height)
@@ -546,14 +555,15 @@ void CSkins::OnUpdate()
 
 void CSkins::UpdateUnloadSkins(CSkinLoadingStats &Stats)
 {
-	if(Stats.m_NumPending + Stats.m_NumLoaded + Stats.m_NumLoading <= (size_t)g_Config.m_ClSkinsLoadedMax)
+	const bool MemoryPressure = Graphics()->TextureMemoryUsage() >= AXION_SKIN_TEXTURE_HIGH_WATER;
+	if(!MemoryPressure && Stats.m_NumPending + Stats.m_NumLoaded + Stats.m_NumLoading <= (size_t)g_Config.m_ClSkinsLoadedMax)
 	{
 		return;
 	}
 
 	const std::chrono::nanoseconds UnloadStart = time_get_nanoseconds();
-	size_t NumToUnload = std::min(Stats.m_NumPending + Stats.m_NumLoaded + Stats.m_NumLoading - (size_t)g_Config.m_ClSkinsLoadedMax, (size_t)16);
-	const size_t MaxSkipped = m_SkinsUsageList.size() / 8;
+	size_t NumToUnload = MemoryPressure ? 16 : std::min(Stats.m_NumPending + Stats.m_NumLoaded + Stats.m_NumLoading - (size_t)g_Config.m_ClSkinsLoadedMax, (size_t)16);
+	const size_t MaxSkipped = std::max<size_t>(16, m_SkinsUsageList.size() / 8);
 	size_t NumSkipped = 0;
 	for(auto It = m_SkinsUsageList.rbegin(); It != m_SkinsUsageList.rend() && NumToUnload != 0 && NumSkipped < MaxSkipped; ++It)
 	{
@@ -569,7 +579,7 @@ void CSkins::UpdateUnloadSkins(CSkinLoadingStats &Stats)
 			continue;
 		}
 		const std::chrono::nanoseconds TimeUnused = UnloadStart - pSkinContainer->m_LastLoadRequest.value();
-		if(TimeUnused < (pSkinContainer->m_State == CSkinContainer::EState::LOADED ? MIN_UNLOAD_TIME_LOADED : MIN_UNLOAD_TIME_PENDING))
+		if(TimeUnused < (MemoryPressure ? 250ms : (pSkinContainer->m_State == CSkinContainer::EState::LOADED ? MIN_UNLOAD_TIME_LOADED : MIN_UNLOAD_TIME_PENDING)))
 		{
 			NumSkipped++;
 			continue;
@@ -593,6 +603,8 @@ void CSkins::UpdateUnloadSkins(CSkinLoadingStats &Stats)
 
 void CSkins::UpdateStartLoading(CSkinLoadingStats &Stats)
 {
+	if(Graphics()->TextureMemoryUsage() >= AXION_SKIN_TEXTURE_HIGH_WATER)
+		return;
 	for(auto &[_, pSkinContainer] : m_Skins)
 	{
 		if(Stats.m_NumPending == 0 || Stats.m_NumLoading + Stats.m_NumLoaded >= (size_t)g_Config.m_ClSkinsLoadedMax)
@@ -623,9 +635,10 @@ void CSkins::UpdateStartLoading(CSkinLoadingStats &Stats)
 
 void CSkins::UpdateFinishLoading(CSkinLoadingStats &Stats, std::chrono::nanoseconds StartTime, std::chrono::nanoseconds MaxTime)
 {
+	int Uploaded = 0;
 	for(auto &[_, pSkinContainer] : m_Skins)
 	{
-		if(Stats.m_NumLoading == 0)
+		if(Stats.m_NumLoading == 0 || Uploaded >= 2 || Graphics()->TextureMemoryUsage() >= AXION_SKIN_TEXTURE_HIGH_WATER)
 		{
 			break;
 		}
@@ -642,6 +655,7 @@ void CSkins::UpdateFinishLoading(CSkinLoadingStats &Stats, std::chrono::nanoseco
 		if(pSkinContainer->m_pLoadJob->State() == IJob::STATE_DONE && pSkinContainer->m_pLoadJob->m_Data.m_Info.m_pData)
 		{
 			LoadSkinFinish(pSkinContainer.get(), pSkinContainer->m_pLoadJob->m_Data);
+			++Uploaded;
 			GameClient()->OnSkinUpdate(pSkinContainer->Name());
 			pSkinContainer->m_pLoadJob = nullptr;
 			Stats.m_NumLoaded++;
