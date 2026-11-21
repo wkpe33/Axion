@@ -232,6 +232,8 @@ public:
 	void OnWindowResize() override;
 	void OnConsoleInit() override;
 	void OnStateChange(int NewState, int OldState) override;
+	void ToggleDemoChatSearch();
+	bool HistorySearchActive() const { return m_SearchActive; }
 	void OnRender() override;
 	void OnPrepareLines(float y);
 	void Reset();

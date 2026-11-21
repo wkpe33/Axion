@@ -174,7 +174,7 @@ void CChat::OnRelease()
 
 void CChat::OnStateChange(int NewState, int OldState)
 {
-	if(OldState <= IClient::STATE_CONNECTING)
+	if(OldState == IClient::STATE_DEMOPLAYBACK || OldState <= IClient::STATE_CONNECTING)
 		Reset();
 }
 
@@ -426,7 +426,13 @@ void CChat::RenderTranslateSettingsButton(const CUIRect &ButtonRect)
 
 bool CChat::OnInput(const IInput::CEvent &Event)
 {
-	if(m_Mode == MODE_NONE)
+	const bool Demo = Client()->State() == IClient::STATE_DEMOPLAYBACK;
+	if(Demo && (Event.m_Flags & IInput::FLAG_PRESS) && Event.m_Key == KEY_F && Input()->ModifierIsPressed())
+	{
+		ToggleDemoChatSearch();
+		return true;
+	}
+	if(m_Mode == MODE_NONE && !(Demo && m_SearchActive))
 		return false;
 	const bool PopupOpen = Ui()->IsPopupOpen(&m_TranslateSettingsPopupId);
 	if(PopupOpen && (Event.m_Flags & IInput::FLAG_PRESS) && Event.m_Key == KEY_ESCAPE)
@@ -474,6 +480,8 @@ bool CChat::OnInput(const IInput::CEvent &Event)
 	}
 	if(m_SearchActive)
 	{
+		if(Demo && Event.m_Key >= KEY_MOUSE_1 && Event.m_Key <= KEY_MOUSE_3)
+			return false;
 		if((Event.m_Flags & IInput::FLAG_PRESS) && Event.m_Key == KEY_ESCAPE)
 			SetHistorySearch(false);
 		else if(Event.m_Key == KEY_MOUSE_WHEEL_UP || Event.m_Key == KEY_MOUSE_WHEEL_DOWN)
@@ -1567,6 +1575,8 @@ void CChat::OnRender()
 	float ScaledFontSize = FontSize() * (8.0f / 6.0f);
 	if(m_SearchActive)
 	{
+		if(Client()->State() == IClient::STATE_DEMOPLAYBACK && GameClient()->m_Menus.IsActive())
+			y = std::min(y, 250.0f);
 		CTextCursor SearchCursor;
 		SearchCursor.SetPosition(vec2(x, y));
 		SearchCursor.m_FontSize = ScaledFontSize;
@@ -1869,6 +1879,12 @@ vec2 CChat::HistoryMouse() const
 	const vec2 Canvas(300 * Graphics()->ScreenAspect(), 300);
 	return AxionCursorForCanvas(Ui()->UpdatedMousePos(), vec2(Graphics()->WindowWidth(), Graphics()->WindowHeight()), Canvas) - AxionHud::Offset(AxionHud::CHAT, Canvas.x, Canvas.y);
 }
+void CChat::ToggleDemoChatSearch()
+{
+	if(Client()->State() == IClient::STATE_DEMOPLAYBACK)
+		SetHistorySearch(!m_SearchActive);
+}
+
 void CChat::SetHistorySearch(bool Active)
 {
 	if(m_SearchActive == Active)

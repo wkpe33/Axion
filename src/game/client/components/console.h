@@ -166,6 +166,7 @@ class CGameConsole : public CComponent
 
 	vec2 m_ButtonPressPosition = vec2(0.0f, 0.0f);
 	bool m_ButtonPressed = false;
+	float m_ScrollbarGrab = -1.0f;
 
 	bool DoButton(const CUIRect &Rect, const char *pIcon, vec2 MousePosition, bool Released);
 

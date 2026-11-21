@@ -157,7 +157,7 @@ void CMenus::RenderDemoPlayer(CUIRect MainView)
 	// handle keyboard shortcuts independent of active menu
 	float PositionToSeek = -1.0f;
 	float TimeToSeek = 0.0f;
-	if(!GameClient()->m_GameConsole.IsActive() && m_DemoPlayerState == DEMOPLAYER_NONE && g_Config.m_ClDemoKeyboardShortcuts && !Ui()->IsPopupOpen())
+	if(!GameClient()->m_GameConsole.IsActive() && !GameClient()->m_Chat.HistorySearchActive() && m_DemoPlayerState == DEMOPLAYER_NONE && g_Config.m_ClDemoKeyboardShortcuts && !Ui()->IsPopupOpen())
 	{
 		// increase/decrease speed
 		if(!Input()->ModifierIsPressed() && !Input()->ShiftIsPressed() && !Input()->AltIsPressed())
@@ -731,7 +731,7 @@ void CMenus::RenderDemoPlayer(CUIRect MainView)
 	// close button
 	ButtonBar.VSplitRight(ButtonbarHeight, &ButtonBar, &Button);
 	static CButtonContainer s_ExitButton;
-	if(Ui()->DoButton_FontIcon(&s_ExitButton, FontIcon::XMARK, 0, &Button, BUTTONFLAG_LEFT) || (Input()->KeyPress(KEY_C) && !GameClient()->m_GameConsole.IsActive() && m_DemoPlayerState == DEMOPLAYER_NONE))
+	if(Ui()->DoButton_FontIcon(&s_ExitButton, FontIcon::XMARK, 0, &Button, BUTTONFLAG_LEFT) || (Input()->KeyPress(KEY_C) && !GameClient()->m_GameConsole.IsActive() && !GameClient()->m_Chat.HistorySearchActive() && m_DemoPlayerState == DEMOPLAYER_NONE))
 	{
 		Client()->Disconnect();
 		SetMenuPage(PAGE_DEMOS);
@@ -761,6 +761,15 @@ void CMenus::RenderDemoPlayer(CUIRect MainView)
 		}
 		GameClient()->m_Tooltips.DoToolTip(&s_AutoCameraButton, &Button, Localize("Toggle auto camera"));
 	}
+
+	CUIRect ChatSearchButton;
+	NameBar.VSplitRight(92.0f, &NameBar, &ChatSearchButton);
+	NameBar.VSplitRight(Margins, &NameBar, nullptr);
+	static CButtonContainer s_ChatSearchButton;
+	if(m_DemoPlayerState == DEMOPLAYER_NONE &&
+		DoButton_Menu(&s_ChatSearchButton, Localize("Search chat"), GameClient()->m_Chat.HistorySearchActive(), &ChatSearchButton))
+		GameClient()->m_Chat.ToggleDemoChatSearch();
+	GameClient()->m_Tooltips.DoToolTip(&s_ChatSearchButton, &ChatSearchButton, Localize("Search chat (Ctrl+F)"));
 
 	// demo name
 	char aDemoName[IO_MAX_PATH_LENGTH];

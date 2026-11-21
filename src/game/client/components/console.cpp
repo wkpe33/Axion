@@ -827,7 +827,7 @@ void CGameConsole::CInstance::UpdateEntryTextAttributes(CBacklogEntry *pEntry) c
 	CTextCursor Cursor;
 	Cursor.m_FontSize = FONT_SIZE;
 	Cursor.m_Flags = 0;
-	Cursor.m_LineWidth = m_pGameConsole->Ui()->Screen()->w - 10;
+	Cursor.m_LineWidth = m_pGameConsole->Ui()->Screen()->w - 19;
 	Cursor.m_MaxLines = 10;
 	Cursor.m_LineSpacing = LINE_SPACING;
 	m_pGameConsole->TextRender()->TextEx(&Cursor, pEntry->m_aText, -1);
@@ -896,7 +896,7 @@ void CGameConsole::CInstance::UpdateSearch()
 	}
 
 	ITextRender *pTextRender = m_pGameConsole->Ui()->TextRender();
-	const int LineWidth = m_pGameConsole->Ui()->Screen()->w - 10.0f;
+	const int LineWidth = m_pGameConsole->Ui()->Screen()->w - 19.0f;
 
 	CBacklogEntry *pEntry = m_Backlog.Last();
 	int EntryLine = 0, LineToScrollStart = 0, LineToScrollEnd = 0;
@@ -1465,6 +1465,46 @@ void CGameConsole::OnRender()
 				pConsole->m_NewLineCounter = 0;
 		}
 
+		// The scrollbar uses the same wrapped lines as the backlog renderer.
+		CUIRect Track = {Screen.w - 10.0f, RowHeight, 7.0f, std::max(0.0f, y - RowHeight)};
+		int TotalLines = 0;
+		for(auto *pLine = pConsole->m_Backlog.Last(); pLine; pLine = pConsole->m_Backlog.Prev(pLine))
+		{
+			if(pLine->m_LineCount == -1)
+				pConsole->UpdateEntryTextAttributes(pLine);
+			TotalLines += pLine->m_LineCount;
+		}
+		const int VisibleLines = std::max(1, static_cast<int>(Track.h / LineHeight));
+		const int MaxScroll = std::max(0, TotalLines - VisibleLines);
+		if(!pConsole->m_MouseIsPress || m_ConsoleState != CONSOLE_OPEN)
+			m_ScrollbarGrab = -1.0f;
+		if(MaxScroll > 0 && Track.h > 12.0f)
+		{
+			CUIRect Thumb = Track;
+			Thumb.h = std::clamp(Track.h * VisibleLines / TotalLines, 12.0f, Track.h);
+			const float Travel = Track.h - Thumb.h;
+			const auto ThumbY = [&] {
+				return Track.y + Travel * (1.0f - std::clamp(pConsole->m_BacklogCurLine, 0, MaxScroll) / static_cast<float>(MaxScroll));
+			};
+			Thumb.y = ThumbY();
+			if(m_ConsoleState == CONSOLE_OPEN && pConsole->m_MouseIsPress && !m_ButtonPressed && Track.Inside(m_ButtonPressPosition))
+			{
+				m_ButtonPressed = true;
+				m_ScrollbarGrab = Thumb.Inside(m_ButtonPressPosition) ? m_ButtonPressPosition.y - Thumb.y : Thumb.h * 0.5f;
+				pConsole->m_HasSelection = false;
+				pConsole->m_CurSelStart = pConsole->m_CurSelEnd = -1;
+			}
+			if(m_ScrollbarGrab >= 0.0f && Travel > 0.0f)
+			{
+				const float Position = std::clamp((ButtonMousePosition.y - Track.y - m_ScrollbarGrab) / Travel, 0.0f, 1.0f);
+				pConsole->m_BacklogCurLine = round_to_int((1.0f - Position) * MaxScroll);
+				pConsole->m_BacklogLastActiveLine = pConsole->m_BacklogCurLine;
+				Thumb.y = ThumbY();
+			}
+			Track.Draw(ColorRGBA(0, 0, 0, 0.35f), IGraphics::CORNER_ALL, 3.0f);
+			Thumb.Draw(ColorRGBA(1, 1, 1, m_ScrollbarGrab >= 0.0f || Track.Inside(ButtonMousePosition) ? 0.70f : 0.4f), IGraphics::CORNER_ALL, 3.0f);
+		}
+
 		// render console log (current entry, status, wrap lines)
 		CInstance::CBacklogEntry *pEntry = pConsole->m_Backlog.Last();
 		float OffsetY = 0.0f;
@@ -1528,7 +1568,7 @@ void CGameConsole::OnRender()
 			CTextCursor EntryCursor;
 			EntryCursor.SetPosition(vec2(0.0f, y - OffsetY));
 			EntryCursor.m_FontSize = FONT_SIZE;
-			EntryCursor.m_LineWidth = Screen.w - 10.0f;
+			EntryCursor.m_LineWidth = Screen.w - 19.0f;
 			EntryCursor.m_MaxLines = pEntry->m_LineCount;
 			EntryCursor.m_LineSpacing = LINE_SPACING;
 			EntryCursor.m_CalculateSelectionMode = (m_ConsoleState == CONSOLE_OPEN && !m_ButtonPressed && pConsole->m_MousePress.y < pConsole->m_BoundingBox.m_Y && (pConsole->m_MouseIsPress || (pConsole->m_CurSelStart != pConsole->m_CurSelEnd) || pConsole->m_HasSelection)) ? TEXT_CURSOR_SELECTION_MODE_CALCULATE : TEXT_CURSOR_SELECTION_MODE_NONE;
