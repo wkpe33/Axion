@@ -112,8 +112,55 @@ void CScoreboard::OnInit()
 	m_DeadTeeTexture = Graphics()->LoadTexture("deadtee.png", IStorage::TYPE_ALL);
 }
 
+namespace
+{
+constexpr float PlayerPanelInset = 6.7f;
+constexpr float PlayerHeaderHeight = 16;
+constexpr float PlayerActionHeight = 18;
+constexpr float PlayerActionGap = 3;
+
+constexpr float PlayerPanelHeight(int Actions)
+{
+	return 2 * PlayerPanelInset + PlayerHeaderHeight + 4 + Actions * PlayerActionHeight + (Actions - 1) * PlayerActionGap;
+}
+
+bool s_ShowPlayerInfo = false;
+float s_PlayerInfoProgress = 0;
+const SPopupMenuProperties s_PlayerMenuStyle{IGraphics::CORNER_ALL, ColorRGBA(0, 0, 0, 0), ColorRGBA(0, 0, 0, 0)};
+
+struct CAimPeak
+{
+	char m_aName[MAX_NAME_LENGTH]{};
+	float m_Distance = 0;
+};
+CAimPeak s_aaAimPeaks[NUM_DUMMIES][MAX_CLIENTS];
+}
+
+void CScoreboard::OnNewSnapshot()
+{
+	auto &aPeaks = s_aaAimPeaks[g_Config.m_ClDummy];
+	for(int Id = 0; Id < MAX_CLIENTS; ++Id)
+	{
+		auto &Peak = aPeaks[Id];
+		const auto &Player = GameClient()->m_aClients[Id];
+		if(!Player.m_Active || str_comp(Peak.m_aName, Player.m_aName) != 0)
+		{
+			Peak = {};
+			if(!Player.m_Active)
+				continue;
+			str_copy(Peak.m_aName, Player.m_aName);
+		}
+		const auto &Char = GameClient()->m_Snap.m_aCharacters[Id];
+		if(Char.m_Active && Char.m_HasExtendedDisplayInfo && !Player.m_Paused)
+			Peak.m_Distance = std::max(Peak.m_Distance, length(vec2(Char.m_ExtendedData.m_TargetX, Char.m_ExtendedData.m_TargetY)));
+	}
+}
+
 void CScoreboard::OnReset()
 {
+	for(auto &aPeaks : s_aaAimPeaks)
+		for(auto &Peak : aPeaks)
+			Peak = {};
 	m_Active = false;
 	m_AltHeld = m_AltPreviousUnlocked = false;
 	m_MouseUnlocked = false;
@@ -451,6 +498,8 @@ void CScoreboard::RenderSpectators(CUIRect Spectators)
 			}
 			if(ButtonResult != 0)
 			{
+				s_ShowPlayerInfo = false;
+				s_PlayerInfoProgress = 0;
 				m_ScoreboardPopupContext.m_Animation = 0;
 				m_ScoreboardPopupContext.m_Closing = false;
 				std::fill(std::begin(m_ScoreboardPopupContext.m_aHover), std::end(m_ScoreboardPopupContext.m_aHover), 0.0f);
@@ -462,8 +511,8 @@ void CScoreboard::RenderSpectators(CUIRect Spectators)
 								     (Client()->DummyConnected() && GameClient()->m_aLocalIds[1] == pInfo->m_ClientId);
 				m_ScoreboardPopupContext.m_IsSpectating = true;
 
-				Ui()->DoPopupMenu(&m_ScoreboardPopupContext, Ui()->MouseX(), Ui()->MouseY(), 178.0f,
-					34.0f + 21.0f * (GameClient()->m_Teams.Team(pInfo->m_ClientId) > 0 && GameClient()->m_Teams.Team(pInfo->m_ClientId) < TEAM_SUPER ? 7 : 6), &m_ScoreboardPopupContext, CScoreboardPopupContext::Render);
+				Ui()->DoPopupMenu(&m_ScoreboardPopupContext, Ui()->MouseX(), Ui()->MouseY(), 346.0f,
+					PlayerPanelHeight(7) + 10.0f, &m_ScoreboardPopupContext, CScoreboardPopupContext::Render, s_PlayerMenuStyle);
 			}
 
 			if(Ui()->HotItem() == &m_aPlayers[pInfo->m_ClientId].m_PlayerButtonId ||
@@ -722,6 +771,8 @@ void CScoreboard::RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart,
 				const int ButtonResult = Ui()->DoButtonLogic(&Player.m_PlayerButtonId, 0, &Hitbox, BUTTONFLAG_LEFT);
 				if(ButtonResult != 0)
 				{
+					s_ShowPlayerInfo = false;
+					s_PlayerInfoProgress = 0;
 					m_ScoreboardPopupContext.m_Animation = 0;
 					m_ScoreboardPopupContext.m_Closing = false;
 					std::fill(std::begin(m_ScoreboardPopupContext.m_aHover), std::end(m_ScoreboardPopupContext.m_aHover), 0.0f);
@@ -733,8 +784,8 @@ void CScoreboard::RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart,
 									     (Client()->DummyConnected() && GameClient()->m_aLocalIds[1] == pInfo->m_ClientId);
 					m_ScoreboardPopupContext.m_IsSpectating = false;
 
-					Ui()->DoPopupMenu(&m_ScoreboardPopupContext, Ui()->MouseX(), Ui()->MouseY(), 178.0f,
-						34.0f + 21.0f * (GameClient()->m_Teams.Team(pInfo->m_ClientId) > 0 && GameClient()->m_Teams.Team(pInfo->m_ClientId) < TEAM_SUPER ? 7 : 6), &m_ScoreboardPopupContext, CScoreboardPopupContext::Render);
+					Ui()->DoPopupMenu(&m_ScoreboardPopupContext, Ui()->MouseX(), Ui()->MouseY(), 346.0f,
+						PlayerPanelHeight(7) + 10.0f, &m_ScoreboardPopupContext, CScoreboardPopupContext::Render, s_PlayerMenuStyle);
 				}
 
 				if(Ui()->HotItem() == &Player.m_PlayerButtonId ||
@@ -1224,10 +1275,122 @@ CUi::EPopupMenuFunctionResult CScoreboard::CScoreboardPopupContext::Render(void 
 	if(p->m_Closing && p->m_Animation < 0.02f)
 		return CUi::POPUP_CLOSE_CURRENT;
 	const float Alpha = p->m_Animation;
-	View.Draw(ColorRGBA(0.055f, 0.06f, 0.07f, Alpha), IGraphics::CORNER_ALL, 3);
-	View.Margin(5, &View);
-	CUIRect Label;
-	View.HSplitTop(16, &Label, &View);
+	CUIRect Info;
+	View.VSplitRight(148, &View, &Info);
+	View.VSplitRight(7, &View, nullptr);
+	const int TargetTeam = pGame->m_Teams.Team(p->m_ClientId);
+	const bool ShowJoin = TargetTeam > 0 && TargetTeam < TEAM_SUPER;
+	View.h = PlayerPanelHeight(ShowJoin ? 7 : 6);
+	const auto Panel = [](CUIRect &Rect, float Opacity) {
+		Rect.Draw(ColorRGBA(0.38f, 0.38f, 0.38f, Opacity), IGraphics::CORNER_ALL, 6);
+		Rect.Margin(0.7f, &Rect);
+		Rect.Draw(ColorRGBA(0.065f, 0.065f, 0.07f, Opacity), IGraphics::CORNER_ALL, 5.3f);
+		Rect.Margin(PlayerPanelInset - 0.7f, &Rect);
+	};
+	Panel(View, Alpha);
+	CUIRect Header, Toggle;
+	View.HSplitTop(PlayerHeaderHeight, &Header, &View);
+	Header.VSplitRight(22, &Header, &Toggle);
+	static CButtonContainer s_Toggle;
+	if(Active && !p->m_Closing && pUi->DoButtonLogic(&s_Toggle, 0, &Toggle, BUTTONFLAG_LEFT))
+		s_ShowPlayerInfo = !s_ShowPlayerInfo;
+	for(int Line = 0; Line < 3; ++Line)
+	{
+		CUIRect Bar = Toggle;
+		Bar.VMargin(4, &Bar);
+		Bar.y += 3 + 4 * Line;
+		Bar.h = 1.4f;
+		Bar.Draw(ColorRGBA(1, 1, 1, Alpha), IGraphics::CORNER_ALL, 0.7f);
+	}
+	s_PlayerInfoProgress += ((s_ShowPlayerInfo ? 1.0f : 0.0f) - s_PlayerInfoProgress) * AxionTransition(Delta, 95.0f);
+	if(s_PlayerInfoProgress > 0.01f)
+	{
+		const float InfoAlpha = Alpha * s_PlayerInfoProgress;
+		Info.x += 4 * (1 - s_PlayerInfoProgress);
+		Info.y += 3;
+		Info.h = 2 * PlayerPanelInset + 18 + 2 * (21 + 3) + 9 + 20;
+		const float BaseX = Info.x + 0.7f;
+		const float TipX = View.x + View.w + PlayerPanelInset;
+		const float CenterY = Toggle.y + Toggle.h * 0.5f;
+		Panel(Info, InfoAlpha);
+		auto *pGraphics = pScore->Graphics();
+		pGraphics->TextureClear();
+		pGraphics->QuadsBegin();
+		const auto Triangle = [&](float Tip, float HalfHeight, ColorRGBA Color) {
+			IGraphics::CFreeformItem Shape(Tip, CenterY, BaseX, CenterY - HalfHeight,
+				Tip, CenterY, BaseX, CenterY + HalfHeight);
+			pGraphics->SetColor(Color);
+			pGraphics->QuadsDrawFreeform(&Shape, 1);
+		};
+		Triangle(TipX, 7, ColorRGBA(0.38f, 0.38f, 0.38f, InfoAlpha));
+		Triangle(TipX + 1.1f, 6, ColorRGBA(0.065f, 0.065f, 0.07f, InfoAlpha));
+		pGraphics->QuadsEnd();
+		pScore->TextRender()->TextColor(1, 1, 1, InfoAlpha);
+		CUIRect Row;
+		Info.HSplitTop(18, &Row, &Info);
+		pUi->DoLabel(&Row, Localize("Player Info"), 11, TEXTALIGN_ML);
+		const bool Own = p->m_ClientId == pGame->m_aLocalIds[g_Config.m_ClDummy] && pScore->Client()->State() == IClient::STATE_ONLINE;
+		const float Distance = Own ? static_cast<float>(g_Config.m_ClDyncam ? g_Config.m_ClDyncamMaxDistance : g_Config.m_ClMouseMaxDistance) :
+			s_aaAimPeaks[g_Config.m_ClDummy][p->m_ClientId].m_Distance;
+		const bool HasAim = Own || Distance > 0;
+		char aValue[48];
+		if(HasAim)
+			str_format(aValue, sizeof(aValue), "%.0f", Distance);
+		else
+			str_copy(aValue, "-");
+		const auto Field = [&](const char *pName, const char *pValue, bool Mouse) {
+			Info.HSplitTop(21, &Row, &Info);
+			Row.Draw(ColorRGBA(0.16f, 0.16f, 0.17f, InfoAlpha), IGraphics::CORNER_ALL, 3);
+			Row.VMargin(4, &Row);
+			CUIRect Icon;
+			Row.VSplitLeft(15, &Icon, &Row);
+			const float X = Icon.x + 6, Y = Icon.y + Icon.h / 2;
+			const ColorRGBA Ink(1, 1, 1, InfoAlpha);
+			const auto Stroke = [&](float Dx, float Dy, float W, float H, float Radius, ColorRGBA Color) {
+				CUIRect Shape = Icon;
+				Shape.x = X + Dx;
+				Shape.y = Y + Dy;
+				Shape.w = W;
+				Shape.h = H;
+				Shape.Draw(Color, IGraphics::CORNER_ALL, Radius);
+			};
+			const float H = Mouse ? 5 : 4;
+			Stroke(-4, -H, 8, 2 * H, 4, Ink);
+			Stroke(-3, 1 - H, 6, 2 * H - 2, 3, ColorRGBA(0.16f, 0.16f, 0.17f, InfoAlpha));
+			if(Mouse)
+				Stroke(-0.5f, -4, 1, 3, 0, Ink);
+			else
+			{
+				for(float Side : {-1.0f, 1.0f})
+				{
+					Stroke(4 * Side - 1.5f, -0.5f, 3, 1, 0, Ink);
+					Stroke(-0.5f, 4 * Side - 1.5f, 1, 3, 0, Ink);
+				}
+			}
+			pUi->DoLabel(&Row, pName, 8, TEXTALIGN_ML);
+			pUi->DoLabel(&Row, pValue, 8, TEXTALIGN_MR);
+			Info.HSplitTop(3, nullptr, &Info);
+		};
+		Field(Own ? Localize("Max cursor distance") : Localize("Observed max distance"), aValue, false);
+		if(Own)
+			str_format(aValue, sizeof(aValue), "%d", g_Config.m_InpMousesens);
+		else
+			str_copy(aValue, Localize("Unknown"));
+		Field(Localize("Sensitivity"), aValue, true);
+		Info.HSplitTop(9, &Row, &Info);
+		pUi->DoLabel(&Row, Localize("Remote sensitivity cannot be measured"), 6, TEXTALIGN_ML);
+		Info.HSplitTop(20, &Row, &Info);
+		static CButtonContainer s_ApplyDistance;
+		const int Limit = g_Config.m_ClDyncam ? 2000 : 5000;
+		if(pUi->DoButton_PopupMenu(&s_ApplyDistance, Localize("Copy cursor limit"), &Row, 8, TEXTALIGN_MC, 3, false,
+			Active && s_ShowPlayerInfo && !p->m_Closing && HasAim && Distance <= Limit, ColorRGBA(0.22f, 0.23f, 0.25f, InfoAlpha)))
+		{
+			int &Setting = g_Config.m_ClDyncam ? g_Config.m_ClDyncamMaxDistance : g_Config.m_ClMouseMaxDistance;
+			Setting = round_to_int(Distance);
+			p->m_Closing = true;
+		}
+	}
+	CUIRect Label = Header;
 	pScore->TextRender()->TextColor(1, 1, 1, Alpha);
 	SLabelProperties Props;
 	Props.m_MaxWidth = Label.w;
@@ -1236,7 +1399,6 @@ CUi::EPopupMenuFunctionResult CScoreboard::CScoreboardPopupContext::Render(void 
 	View.HSplitTop(4, nullptr, &View);
 	const int Local = pGame->m_aLocalIds[g_Config.m_ClDummy];
 	const int LocalTeam = Local >= 0 ? pGame->m_Teams.Team(Local) : 0;
-	const int TargetTeam = pGame->m_Teams.Team(p->m_ClientId);
 	const bool Live = pScore->Client()->State() == IClient::STATE_ONLINE;
 	const bool TeamServer = pGame->m_GameInfo.m_EntitiesDDRace;
 	const bool Other = Local != p->m_ClientId;
@@ -1248,11 +1410,12 @@ CUi::EPopupMenuFunctionResult CScoreboard::CScoreboardPopupContext::Render(void 
 		true, Live, Other, Other && (pGame->m_Snap.m_SpecInfo.m_Active || TeamServer), Other};
 	for(int Index = 0; Index < static_cast<int>(std::size(apLabels)); ++Index)
 	{
-		if(Index == 1 && (TargetTeam <= 0 || TargetTeam >= TEAM_SUPER))
+		if(Index == 1 && !ShowJoin)
 			continue;
 		CUIRect Button;
-		View.HSplitTop(18, &Button, &View);
-		View.HSplitTop(3, nullptr, &View);
+		View.HSplitTop(PlayerActionHeight, &Button, &View);
+		if(Index + 1 < static_cast<int>(std::size(apLabels)))
+			View.HSplitTop(PlayerActionGap, nullptr, &View);
 		p->m_aHover[Index] += ((Active && Button.Inside(pUi->MousePos()) ? 1.0f : 0.0f) - p->m_aHover[Index]) * AxionTransition(Delta);
 		const float Shade = 0.12f + 0.08f * p->m_aHover[Index];
 		const bool Click = pUi->DoButton_PopupMenu(&p->m_aActions[Index], Localize(apLabels[Index]), &Button, 10, TEXTALIGN_ML, 6, false, aEnabled[Index] && !p->m_Closing, ColorRGBA(Shade, Shade, Shade + 0.01f, Alpha));

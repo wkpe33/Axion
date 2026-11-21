@@ -114,6 +114,7 @@ public:
 	void OnConsoleInit() override;
 	void OnInit() override;
 	void OnReset() override;
+	void OnNewSnapshot() override;
 	void OnShutdown() override;
 	void OnWindowResize() override;
 	void OnRender() override;
