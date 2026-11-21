@@ -1,5 +1,6 @@
 #include "bg_draw_file.h"
 
+#include <cmath>
 #include <cstring>
 
 #define MAX_LINE_LENGTH 256
@@ -35,7 +36,8 @@ bool BgDrawFile::Read(const std::function<bool(char *pBuf, int Length)> &ReadLin
 		float w = 5.0f;
 		float r = 1.0f, g = 1.0f, b = 1.0f, a = 1.0f;
 		int Ret = std::sscanf(aBuf, "%f,%f,%f,%f,%f,%f,%f", &x, &y, &w, &r, &g, &b, &a);
-		if(Ret < 2)
+		if(Ret < 2 || !std::isfinite(x) || !std::isfinite(y) || !std::isfinite(w) || w <= 0.0f ||
+			!std::isfinite(r) || !std::isfinite(g) || !std::isfinite(b) || !std::isfinite(a))
 			continue; // Need x and y
 		Data.emplace_back(x, y, w, r, g, b, a);
 	}

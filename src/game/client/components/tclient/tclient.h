@@ -59,7 +59,7 @@ public:
 	void FinishTClientInfo();
 	void ResetTClientInfoTask();
 	bool NeedUpdate();
-	static constexpr const char *AXION_UPDATE_VERSION = "1.6.1";
+	static constexpr const char *AXION_UPDATE_VERSION = "1.6.2";
 
 	void RenderMiniVoteHud();
 	void RenderCenterLines();

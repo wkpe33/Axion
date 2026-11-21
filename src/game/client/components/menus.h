@@ -143,7 +143,6 @@ protected:
 	int m_MenuPage;
 	int m_GamePage;
 	int m_AxionMiscPanel = 0;
-	bool m_CheatCheckPanel = false;
 	int m_Popup;
 	bool m_ShowStart;
 	bool m_MenuActive;
@@ -500,7 +499,6 @@ protected:
 	// found in menus_ingame.cpp
 	STextContainerIndex m_MotdTextContainerIndex;
 	void RenderGame(CUIRect MainView);
-	void RenderCheatCheckMenu(CUIRect View);
 	void PopupConfirmDisconnect();
 	void PopupConfirmDisconnectDummy();
 	void PopupConfirmDiscardTouchControlsChanges();

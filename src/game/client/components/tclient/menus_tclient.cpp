@@ -1180,6 +1180,8 @@ void CMenus::RenderSettingsTClientSettings(CUIRect MainView)
 	Column.HSplitTop(LineSize * 2.0f, &Button, &Column);
 	Ui()->DoScrollbarOption(&g_Config.m_TcBgDrawWidth, &g_Config.m_TcBgDrawWidth, &Button, TCLocalize("Width"), 1, 50, &CUi::ms_LinearScrollbarScale, CUi::SCROLLBAR_OPTION_MULTILINE);
 
+	DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_TcBgDrawAutoSaveLoad, TCLocalize("Automatically save and load background drawings"), &g_Config.m_TcBgDrawAutoSaveLoad, &Column, LineSize);
+
 	static CButtonContainer s_ReaderButtonDraw, s_ClearButtonDraw;
 	DoLine_KeyReader(Column, s_ReaderButtonDraw, s_ClearButtonDraw, TCLocalize("Draw where mouse is"), "+bg_draw");
 

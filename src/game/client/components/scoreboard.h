@@ -53,8 +53,8 @@ class CScoreboard : public CComponent
 	{
 	public:
 		CScoreboard *m_pScoreboard = nullptr;
-		CButtonContainer m_aActions[8];
-		float m_aHover[8]{};
+		CButtonContainer m_aActions[7];
+		float m_aHover[7]{};
 		float m_Animation = 0;
 		bool m_Closing = false;
 		int m_Connection = 0;

@@ -7,6 +7,7 @@
 #include <engine/external/spt.h>
 #include <engine/graphics.h>
 #include <engine/shared/config.h>
+#include <engine/shared/linereader.h>
 
 #include <game/client/animstate.h>
 #include <game/client/components/tclient/bg_draw_file.h>
@@ -219,6 +220,7 @@ public:
 			*(m_Data.end() - 1) = Point;
 		else
 			m_Data.emplace_back(Point);
+		m_BoundingBox.ExtendBoundingBox(Point.Pos(), Point.w);
 		m_PathContainer.Update(m_Data);
 		return true;
 	}
@@ -281,22 +283,12 @@ public:
 		m_BoundingBox.ExtendBoundingBox(StartPos, CurrentWidth());
 		m_Data.emplace_back(StartPos, CurrentWidth(), CurrentColor());
 	}
-	CBgDrawItem(CGameClient &This, CBgDrawItemDataPoint StartPoint) :
-		CBgDrawItem(This, StartPoint.Pos())
-	{
-		m_Data.clear();
-		m_Data.push_back(StartPoint);
-	}
 	CBgDrawItem(CGameClient &This, const CBgDrawItemData &Data) :
-		CBgDrawItem(This, Data[0])
+		m_This(This), m_Drawing(false), m_PathContainer(*This.Graphics()), m_Data(Data)
 	{
-		if(Data.size() > 1)
-			for(auto It = Data.begin() + 1; It != Data.end() - 1; ++It)
-			{
-				const CBgDrawItemDataPoint &Point = *It;
-				MoveTo(Point);
-			}
-		PenUp(Data.back());
+		for(const auto &Point : m_Data)
+			m_BoundingBox.ExtendBoundingBox(Point.Pos(), Point.w);
+		m_PathContainer.Update(m_Data);
 	}
 };
 
@@ -418,38 +410,40 @@ bool CBgDraw::Load(const char *pFilename, bool Verbose)
 {
 	if(Client()->State() != IClient::STATE_ONLINE && Client()->State() != IClient::STATE_DEMOPLAYBACK)
 		return false;
-	IOHANDLE Handle = BgDrawOpenFile(*GameClient(), pFilename, IOFLAG_READ);
-	if(!Handle)
+	CLineReader Reader;
+	if(!Reader.OpenFile(BgDrawOpenFile(*GameClient(), pFilename, IOFLAG_READ)))
 		return false;
 
-	auto ReadLine = [Handle](char *pBuf, int Length) -> bool {
-		if(!io_read(Handle, pBuf, Length))
+	const auto ReadLine = [&](char *pBuf, int Length) {
+		const char *pLine = Reader.Get();
+		if(!pLine)
 			return false;
-		size_t Len = str_length(pBuf);
-		while(Len > 0 && (pBuf[Len - 1] == '\n' || pBuf[Len - 1] == '\r'))
-			pBuf[--Len] = '\0';
+		str_copy(pBuf, pLine, Length);
 		return true;
 	};
 
 	std::deque<CBgDrawItemData> Queue;
+	const int MaxItems = g_Config.m_TcBgDrawMaxItems;
+	if(MaxItems == 0)
+		return false;
 	int ItemsLoaded = 0;
 	int ItemsDiscarded = 0;
+	CBgDrawItemData Data;
+	while(ItemsLoaded < MAX_ITEMS_TO_LOAD && BgDrawFile::Read(ReadLine, Data))
 	{
-		CBgDrawItemData Data;
-		while(BgDrawFile::Read(ReadLine, Data) && (ItemsLoaded++) < MAX_ITEMS_TO_LOAD)
+		++ItemsLoaded;
+		if(static_cast<int>(Queue.size()) == MaxItems)
 		{
-			if((int)Queue.size() > g_Config.m_TcBgDrawMaxItems)
-			{
-				ItemsDiscarded += 1;
-				Queue.pop_front();
-			}
-			Queue.push_back(Data);
+			++ItemsDiscarded;
+			Queue.pop_front();
 		}
+		Queue.push_back(std::move(Data));
 	}
-	io_close(Handle);
-	MakeSpaceFor(Queue.size());
-	for(const CBgDrawItemData &Data : Queue)
-		AddItem(*GameClient(), Data);
+	MakeSpaceFor(static_cast<int>(Queue.size()));
+	for(const CBgDrawItemData &Item : Queue)
+		AddItem(*GameClient(), Item);
+	if(!Verbose)
+		m_Dirty = false;
 	if(Verbose)
 	{
 		char aInfo[256];
@@ -478,6 +472,7 @@ void CBgDraw::MakeSpaceFor(int Count)
 {
 	if(g_Config.m_TcBgDrawMaxItems == 0 || Count >= g_Config.m_TcBgDrawMaxItems)
 	{
+		m_apActiveItems.fill(std::nullopt);
 		m_pvItems->clear();
 		return;
 	}
@@ -510,6 +505,9 @@ void CBgDraw::OnRender()
 	if(Client()->State() != IClient::STATE_ONLINE && Client()->State() != IClient::STATE_DEMOPLAYBACK)
 		return;
 
+	if(GameClient()->m_Menus.IsActive() || GameClient()->m_GameConsole.IsActive())
+		m_aInputData.fill(InputMode::NONE);
+
 	Graphics()->TextureClear();
 
 	float Delta = Client()->RenderFrameTime();
@@ -536,8 +534,8 @@ void CBgDraw::OnRender()
 		{
 			if(ActiveItem.has_value())
 				(*ActiveItem)->MoveTo(Pos);
-			else
-				ActiveItem = AddItem(*GameClient(), Pos);
+			else if(auto *pItem = AddItem(*GameClient(), Pos))
+				ActiveItem = pItem;
 			m_Dirty = true;
 		}
 		else if(ActiveItem.has_value())
@@ -569,6 +567,9 @@ void CBgDraw::OnRender()
 	// Remove extra items
 	MakeSpaceFor(0);
 	// Update age of items, delete old items, render items
+	const CScreenRect PreviousScreen = Graphics()->GetScreen();
+	const auto &Camera = GameClient()->m_Camera;
+	Graphics()->MapScreenToInterface(Camera.m_Center.x, Camera.m_Center.y, Camera.m_Zoom);
 	const CScreenRect ScreenRect = Graphics()->GetScreen();
 	for(CBgDrawItem &Item : *m_pvItems)
 	{
@@ -593,14 +594,23 @@ void CBgDraw::OnRender()
 			Item.Render();
 		}
 	}
+	Graphics()->MapScreen(PreviousScreen);
 	// Remove killed items
-	if(m_pvItems->remove_if([&](CBgDrawItem &Item) { return Item.m_Killed; }))
+	if(m_pvItems->remove_if([&](CBgDrawItem &Item) {
+		   if(!Item.m_Killed)
+			   return false;
+		   for(auto &ActiveItem : m_apActiveItems)
+			   if(ActiveItem.value_or(nullptr) == &Item)
+				   ActiveItem.reset();
+		   return true;
+	   }))
 		m_Dirty = true;
 	Graphics()->SetColor(ColorRGBA(1.0f, 1.0f, 1.0f, 1.0f));
 }
 
 void CBgDraw::Reset()
 {
+	m_Dirty = false;
 	m_aInputData.fill(InputMode::NONE);
 	m_aLastPos.fill(std::nullopt);
 	m_apActiveItems.fill(std::nullopt);
@@ -620,7 +630,7 @@ void CBgDraw::OnStateChange(int NewState, int OldState)
 	}
 	Reset();
 	m_NextAutoSave = AUTO_SAVE_INTERVAL;
-	if(NewState == IClient::STATE_ONLINE || OldState == IClient::STATE_DEMOPLAYBACK)
+	if(NewState == IClient::STATE_ONLINE || NewState == IClient::STATE_DEMOPLAYBACK)
 	{
 		if(g_Config.m_TcBgDrawAutoSaveLoad > 0)
 			Load(nullptr, false);

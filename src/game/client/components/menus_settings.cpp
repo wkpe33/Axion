@@ -42,11 +42,6 @@ void CMenus::RenderSettingsAxion(CUIRect View)
 		}
 	}
 	View.HSplitTop(10.0f, nullptr, &View);
-	if(s_Tab == 1 && m_CheatCheckPanel)
-	{
-		RenderCheatCheckMenu(View);
-		return;
-	}
 	if(s_Tab == 2 && m_AxionMiscPanel != 0)
 	{
 		CUIRect BackRow;
@@ -241,11 +236,6 @@ void CMenus::RenderSettingsAxion(CUIRect View)
 	{
 		CUIRect Panel = BeginPanel(Left, 68.0f, Localize("Prediction"));
 		Check(Panel, Localize("Predict moving tiles (Ego)"), g_Config.m_AxMovingTilePrediction);
-		Panel = BeginPanel(Right, 66.0f, "Cheat checker");
-		Panel.HSplitTop(22.0f, &Row, &Panel);
-		static CButtonContainer s_CheatCheck;
-		if(DoButton_Menu(&s_CheatCheck, "CheatCheck", 0, &Row))
-			m_CheatCheckPanel = true;
 	}
 	else if(s_Tab == 2)
 	{

@@ -37,71 +37,6 @@ class CSpectator : public CComponent
 	vec2 m_GhostFollowPosition{};
 
 	void StopGhostSpectate();
-public:
-	struct SCheatCheck
-	{
-		int m_ClientId = -1;
-		int m_Connection = -1;
-		int m_LastTick = -1;
-		int m_SampledTicks = 0;
-		int m_LastDirection = 0;
-		int m_LastAttack = 0;
-		int m_ValidAimTicks = 0;
-		int m_AimDeadline = -1;
-		int m_AimKind = 0;
-		int m_PulseTick = -1;
-		int m_PulseTile = -1;
-		int m_ClusterTile = -1;
-		int m_ClusterTick = -1;
-		int m_ClusterCount = 0;
-		int m_AimbotEvents = 0;
-		int m_WallEvents = 0;
-		int m_WallHooks = 0;
-		int m_LastHookState = 0;
-		int m_LastHookedPlayer = -1;
-		int m_HookAssistEvents = 0;
-		int m_HookRiskTick = -1;
-		int m_LastJumped = 0;
-		vec2 m_LastHookPosition{};
-		int m_AimReturns = 0;
-		int m_AvoidEvents = 0;
-		vec2 m_LastAim{};
-		vec2 m_AnchorAim{};
-		vec2 m_SnapAim{};
-		bool m_CountWallForCurrentHook = true;
-		float m_Score = 0.0f;
-		bool m_Enabled = false;
-		int m_TeleportCluster = -1;
-		int m_TeleportCount = 0;
-		int m_LastTeleportCorrection = -1;
-		char m_aName[64]{};
-	};
-	const SCheatCheck &CheatCheck(int ClientId) const { return m_aCheatChecks[ClientId]; }
-	void StopCheatCheck(int ClientId);
-	struct SCheatRecord
-	{
-		char m_aName[64]{};
-		char m_aServer[96]{};
-		int m_Score = 0;
-		int m_Aimbot = 0;
-		int m_Wall = 0;
-		int m_WallHooks = 0;
-		int m_Avoid = 0;
-		int m_AimReturns = 0;
-		int m_HookAssist = 0;
-	};
-	const std::vector<SCheatRecord> &CheatRecords() const { return m_vCheatRecords; }
-	void DeleteCheatRecord(int Index);
-
-
-private:
-	SCheatCheck m_aCheatChecks[MAX_CLIENTS];
-	std::vector<SCheatRecord> m_vCheatRecords;
-	void UpdateCheatRecord(const SCheatCheck &Check);
-	int m_CheatHudClient = -1;
-	int m_CheatGhostClient = -1;
-	void SampleCheatCheck(SCheatCheck &Check);
-	void RenderCheatCheck();
 
 	bool CanChangeSpectatorId();
 	void SpectateNext(bool Reverse);
@@ -125,7 +60,6 @@ public:
 	void OnReset() override;
 	void OnNewSnapshot() override;
 	void ToggleGhostSpectate();
-	void StartCheatCheck(int ClientId);
 	void UpdateGhostSpectate();
 	bool GhostSpectating() const;
 

@@ -2,6 +2,7 @@
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 #include "maplayers.h"
 
+#include <base/time.h>
 #include <engine/map.h>
 
 #include <game/client/gameclient.h>
@@ -36,7 +37,13 @@ void CMapLayers::OnMapLoad()
 	char aCaption[64 + MAX_MAP_LENGTH];
 	str_format(aCaption, sizeof(aCaption), "%s: %s", Localize("Loading map"), m_pLayers->Map()->BaseName());
 
+	int64_t LastProgressFrame = 0;
 	FCallbackMapRendererInit ProgressBarCallback = [&](int GroupId, int NumGroups, int LayerId, int NumLayers) {
+		// A progress swap can block on vsync and drain queued map uploads.
+		const int64_t Now = time();
+		if(Now - LastProgressFrame < time_freq() / 12)
+			return;
+		LastProgressFrame = Now;
 		GameClient()->m_Menus.RenderLoadingDirect(aCaption, Localize("Initializing layers"), std::make_optional((GroupId + (float)LayerId / NumLayers) / (float)NumGroups));
 	};
 

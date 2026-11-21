@@ -42,129 +42,8 @@
 
 using namespace std::chrono_literals;
 
-void CMenus::RenderCheatCheckMenu(CUIRect View)
-{
-	CUIRect Header, Back;
-	View.HSplitTop(25.0f, &Header, &View);
-	Header.VSplitRight(80.0f, &Header, &Back);
-	Ui()->DoLabel(&Header, "Cheat checker", 17.0f, TEXTALIGN_ML);
-	static CButtonContainer s_Back;
-	if(DoButton_Menu(&s_Back, Localize("Back"), 0, &Back))
-		m_CheatCheckPanel = false;
-	View.HSplitTop(6.0f, nullptr, &View);
-
-	CUIRect Toolbar, HistoryButton, SortButton;
-	View.HSplitTop(25.0f, &Toolbar, &View);
-	Toolbar.VSplitLeft(120.0f, &HistoryButton, &Toolbar);
-	Toolbar.VSplitLeft(145.0f, &SortButton, nullptr);
-	static CButtonContainer s_HistoryButton, s_SortButton;
-	static bool s_ShowHistory = false;
-	static int s_Sort = 0;
-	if(DoButton_Menu(&s_HistoryButton, s_ShowHistory ? "Live players" : "Saved results", s_ShowHistory, &HistoryButton))
-		s_ShowHistory = !s_ShowHistory;
-	if(s_ShowHistory)
-	{
-		const char *apSortNames[] = {"Sort: newest added", "Sort: suspicion", "Sort: player name"};
-		if(DoButton_Menu(&s_SortButton, apSortNames[s_Sort], 0, &SortButton))
-			s_Sort = (s_Sort + 1) % 3;
-		const auto &Records = GameClient()->m_Spectator.CheatRecords();
-		std::vector<int> vOrder;
-		for(int Index = (int)Records.size() - 1; Index >= 0; --Index)
-			vOrder.push_back(Index);
-		if(s_Sort != 0)
-			std::stable_sort(vOrder.begin(), vOrder.end(), [&](int A, int B) {
-				return s_Sort == 1 ? Records[A].m_Score > Records[B].m_Score : str_comp_nocase(Records[A].m_aName, Records[B].m_aName) < 0;
-			});
-
-		static CScrollRegion s_HistoryScroll;
-		static CButtonContainer s_aDelete[512];
-		int DeleteIndex = -1;
-		s_HistoryScroll.Begin(&View);
-		for(int Index : vOrder)
-		{
-			CUIRect Row, Delete, Stats;
-			View.HSplitTop(23.0f, &Row, &View);
-			if(!s_HistoryScroll.AddRect(Row))
-				continue;
-			Row.Draw(ColorRGBA(0, 0, 0, 0.25f), IGraphics::CORNER_ALL, 3.0f);
-			Row.VMargin(5.0f, &Row);
-			Row.VSplitRight(64.0f, &Row, &Delete);
-			Row.VSplitMid(&Row, &Stats, 5.0f);
-			const auto &Record = Records[Index];
-			char aText[160];
-			str_format(aText, sizeof(aText), "%s  |  %s", Record.m_aName, Record.m_aServer);
-			SLabelProperties Props;
-			Props.m_MaxWidth = Row.w;
-			Props.m_EllipsisAtEnd = true;
-			Ui()->DoLabel(&Row, aText, 11.0f, TEXTALIGN_ML, Props);
-			str_format(aText, sizeof(aText), "%d%%   Aim %d (%d returns)   Wall %d/%d   Hook %d   Freeze %d",
-				Record.m_Score, Record.m_Aimbot, Record.m_AimReturns, Record.m_Wall, Record.m_WallHooks, Record.m_HookAssist, Record.m_Avoid);
-			Props.m_MaxWidth = Stats.w;
-			Ui()->DoLabel(&Stats, aText, 11.0f, TEXTALIGN_ML, Props);
-			if(DoButton_Menu(&s_aDelete[Index], Localize("Delete"), 0, &Delete))
-				DeleteIndex = Index;
-		}
-		s_HistoryScroll.End();
-		if(DeleteIndex >= 0)
-			GameClient()->m_Spectator.DeleteCheatRecord(DeleteIndex);
-		return;
-	}
-
-	static CScrollRegion s_Scroll;
-	s_Scroll.Begin(&View);
-	static CButtonContainer s_aToggle[MAX_CLIENTS];
-	for(int Id = 0; Id < MAX_CLIENTS; ++Id)
-	{
-		const auto *pInfo = GameClient()->m_Snap.m_apPlayerInfos[Id];
-		const auto &Check = GameClient()->m_Spectator.CheatCheck(Id);
-		const bool HasResult = Check.m_ClientId >= 0 &&
-			(!pInfo || str_comp(Check.m_aName, GameClient()->m_aClients[Id].m_aName) == 0);
-		if(!pInfo && Check.m_ClientId < 0)
-			continue;
-
-		CUIRect Row, Button, Stats;
-		View.HSplitTop(23.0f, &Row, &View);
-		if(!s_Scroll.AddRect(Row))
-			continue;
-		Row.Draw(ColorRGBA(0, 0, 0, 0.25f), IGraphics::CORNER_ALL, 4.0f);
-		Row.VMargin(5.0f, &Row);
-		Row.VSplitRight(64.0f, &Row, &Button);
-		Row.VSplitMid(&Row, &Stats, 5.0f);
-		SLabelProperties Props;
-		Props.m_MaxWidth = Row.w;
-		Props.m_EllipsisAtEnd = true;
-		Ui()->DoLabel(&Row, pInfo ? GameClient()->m_aClients[Id].m_aName : Check.m_aName, 12.0f, TEXTALIGN_ML, Props);
-		char aStats[96];
-		if(HasResult)
-			str_format(aStats, sizeof(aStats), "%.0f%%   Aim %d (%d returns)   Wall %d/%d   Hook %d   Freeze %d", Check.m_Score, Check.m_AimbotEvents, Check.m_AimReturns, Check.m_WallEvents, Check.m_WallHooks, Check.m_HookAssistEvents, Check.m_AvoidEvents);
-		else
-			str_copy(aStats, Localize("No results"));
-		Props.m_MaxWidth = Stats.w;
-		Ui()->DoLabel(&Stats, aStats, 11.0f, TEXTALIGN_ML, Props);
-		if(Check.m_Enabled || pInfo)
-		{
-			if(DoButton_Menu(&s_aToggle[Id], Check.m_Enabled ? Localize("Stop") : Localize("Check"), Check.m_Enabled, &Button))
-			{
-				if(Check.m_Enabled)
-					GameClient()->m_Spectator.StopCheatCheck(Id);
-				else
-					GameClient()->m_Spectator.StartCheatCheck(Id);
-			}
-		}
-	}
-	s_Scroll.End();
-}
-
 void CMenus::RenderGame(CUIRect MainView)
 {
-	if(m_CheatCheckPanel)
-	{
-		MainView.Draw(ms_ColorTabbarActive, IGraphics::CORNER_B, 10.0f);
-		MainView.Margin(12.0f, &MainView);
-		RenderCheatCheckMenu(MainView);
-		return;
-	}
-
 	CUIRect Button, ButtonBars, ButtonBar, ButtonBar2;
 	bool ShowDDRaceButtons = MainView.w > 855.0f;
 	MainView.HSplitTop(45.0f + (g_Config.m_ClTouchControls ? 35.0f : 0.0f), &ButtonBars, &MainView);
@@ -410,14 +289,6 @@ void CMenus::RenderGame(CUIRect MainView)
 		GameClient()->m_Camera.UpdateAutoSpecCameraTooltip();
 		GameClient()->m_Tooltips.DoToolTip(&s_AutoCameraButton, &Button, GameClient()->m_Camera.AutoSpecCameraTooltip());
 	}
-
-	CUIRect CheatCheckRow, CheatCheckButton;
-	MainView.HSplitTop(28.0f, &CheatCheckRow, &MainView);
-	CheatCheckRow.VSplitLeft(120.0f, &CheatCheckButton, nullptr);
-	CheatCheckButton.Margin(3.0f, &CheatCheckButton);
-	static CButtonContainer s_CheatCheck;
-	if(DoButton_Menu(&s_CheatCheck, "CheatCheck", 0, &CheatCheckButton))
-		m_CheatCheckPanel = true;
 
 	if(g_Config.m_ClTouchControls)
 	{

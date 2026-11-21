@@ -463,7 +463,7 @@ void CScoreboard::RenderSpectators(CUIRect Spectators)
 				m_ScoreboardPopupContext.m_IsSpectating = true;
 
 				Ui()->DoPopupMenu(&m_ScoreboardPopupContext, Ui()->MouseX(), Ui()->MouseY(), 178.0f,
-					34.0f + 21.0f * (GameClient()->m_Teams.Team(pInfo->m_ClientId) > 0 && GameClient()->m_Teams.Team(pInfo->m_ClientId) < TEAM_SUPER ? 8 : 7), &m_ScoreboardPopupContext, CScoreboardPopupContext::Render);
+					34.0f + 21.0f * (GameClient()->m_Teams.Team(pInfo->m_ClientId) > 0 && GameClient()->m_Teams.Team(pInfo->m_ClientId) < TEAM_SUPER ? 7 : 6), &m_ScoreboardPopupContext, CScoreboardPopupContext::Render);
 			}
 
 			if(Ui()->HotItem() == &m_aPlayers[pInfo->m_ClientId].m_PlayerButtonId ||
@@ -734,7 +734,7 @@ void CScoreboard::RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart,
 					m_ScoreboardPopupContext.m_IsSpectating = false;
 
 					Ui()->DoPopupMenu(&m_ScoreboardPopupContext, Ui()->MouseX(), Ui()->MouseY(), 178.0f,
-						34.0f + 21.0f * (GameClient()->m_Teams.Team(pInfo->m_ClientId) > 0 && GameClient()->m_Teams.Team(pInfo->m_ClientId) < TEAM_SUPER ? 8 : 7), &m_ScoreboardPopupContext, CScoreboardPopupContext::Render);
+						34.0f + 21.0f * (GameClient()->m_Teams.Team(pInfo->m_ClientId) > 0 && GameClient()->m_Teams.Team(pInfo->m_ClientId) < TEAM_SUPER ? 7 : 6), &m_ScoreboardPopupContext, CScoreboardPopupContext::Render);
 				}
 
 				if(Ui()->HotItem() == &Player.m_PlayerButtonId ||
@@ -1242,11 +1242,11 @@ CUi::EPopupMenuFunctionResult CScoreboard::CScoreboardPopupContext::Render(void 
 	const bool Other = Local != p->m_ClientId;
 	char aJoin[48];
 	str_format(aJoin, sizeof(aJoin), "Join Team %d", TargetTeam);
-	const char *apLabels[] = {"Invite to Team", aJoin, "Copy Nickname", "Copy Skin", Player.m_Friend ? "Remove Friend" : "Add Friend", "Spectate", Player.m_ChatIgnore ? "Unmute" : "Mute", "Cheat checker"};
+	const char *apLabels[] = {"Invite to Team", aJoin, "Copy Nickname", "Copy Skin", Player.m_Friend ? "Remove Friend" : "Add Friend", "Spectate", Player.m_ChatIgnore ? "Unmute" : "Mute"};
 	bool aEnabled[] = {Live && TeamServer && Other && LocalTeam > 0 && LocalTeam < TEAM_SUPER && LocalTeam != TargetTeam,
 		Live && TeamServer && Other && TargetTeam > 0 && TargetTeam < TEAM_SUPER && TargetTeam != LocalTeam,
-		true, Live, Other, Other && (pGame->m_Snap.m_SpecInfo.m_Active || TeamServer), Other, Live && Other};
-	for(int Index = 0; Index < 8; ++Index)
+		true, Live, Other, Other && (pGame->m_Snap.m_SpecInfo.m_Active || TeamServer), Other};
+	for(int Index = 0; Index < static_cast<int>(std::size(apLabels)); ++Index)
 	{
 		if(Index == 1 && (TargetTeam <= 0 || TargetTeam >= TEAM_SUPER))
 			continue;
@@ -1317,7 +1317,6 @@ CUi::EPopupMenuFunctionResult CScoreboard::CScoreboardPopupContext::Render(void 
 			}
 			break;
 		case 6: Player.m_ChatIgnore ^= 1; break;
-		case 7: pGame->m_Spectator.StartCheatCheck(p->m_ClientId); break;
 		}
 		p->m_Closing = true;
 	}
