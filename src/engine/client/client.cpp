@@ -3328,6 +3328,50 @@ static void LogStartupPhase(const char *pPhase)
 		log_info("startup", "%s %.3f ms", pPhase, std::chrono::duration<double, std::milli>(time_get_nanoseconds()).count());
 }
 
+#if defined(CONF_FAMILY_WINDOWS)
+namespace
+{
+constexpr wchar_t AXION_DEMO_WINDOW[] = L"Axion.DemoOpen";
+constexpr ULONG_PTR AXION_DEMO_MESSAGE = 1;
+
+LRESULT CALLBACK AxionDemoWindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
+{
+	if(Message == WM_NCCREATE)
+	{
+		const auto *pCreate = reinterpret_cast<const CREATESTRUCTW *>(LParam);
+		SetWindowLongPtrW(Window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(pCreate->lpCreateParams));
+	}
+	else if(Message == WM_COPYDATA)
+	{
+		auto *pClient = reinterpret_cast<CClient *>(GetWindowLongPtrW(Window, GWLP_USERDATA));
+		const auto *pData = reinterpret_cast<const COPYDATASTRUCT *>(LParam);
+		if(!pClient || !pData || pData->dwData != AXION_DEMO_MESSAGE ||
+			pData->cbData < 2 || pData->cbData > IO_MAX_PATH_LENGTH || !pData->lpData)
+			return FALSE;
+		const auto *pPath = static_cast<const char *>(pData->lpData);
+		if(memchr(pPath, 0, pData->cbData) != pPath + pData->cbData - 1 ||
+			!str_utf8_check(pPath) || fs_is_relative_path(pPath) || !str_endswith_nocase(pPath, ".demo"))
+			return FALSE;
+		pClient->HandleDemoPath(pPath);
+		return TRUE;
+	}
+	return DefWindowProcW(Window, Message, WParam, LParam);
+}
+
+HWND CreateAxionDemoWindow(CClient *pClient)
+{
+	WNDCLASSW Class = {};
+	Class.lpfnWndProc = AxionDemoWindowProc;
+	Class.hInstance = GetModuleHandleW(nullptr);
+	Class.lpszClassName = AXION_DEMO_WINDOW;
+	if(!RegisterClassW(&Class) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
+		return nullptr;
+	return CreateWindowExW(0, AXION_DEMO_WINDOW, AXION_DEMO_WINDOW, 0, 0, 0, 0, 0,
+		HWND_MESSAGE, nullptr, Class.hInstance, pClient);
+}
+}
+#endif
+
 void CClient::Run()
 {
 	m_LocalStartTime = m_GlobalStartTime = time_get();
@@ -3497,6 +3541,9 @@ void CClient::Run()
 	bool StartupMenuLogged = false;
 	bool WasMeasuringPerformance = false;
 
+#if defined(CONF_FAMILY_WINDOWS)
+	const HWND DemoWindow = CreateAxionDemoWindow(this);
+#endif
 	while(true)
 	{
 		set_new_tick();
@@ -3512,9 +3559,15 @@ void CClient::Run()
 		// handle pending demo play
 		if(m_aCmdPlayDemo[0])
 		{
+			g_Config.m_ClEditor = 0;
 			const char *pError = DemoPlayer_Play(m_aCmdPlayDemo, IStorage::TYPE_ALL_OR_ABSOLUTE);
 			if(pError)
+			{
 				log_error("demo_player", "playing passed demo file '%s' failed: %s", m_aCmdPlayDemo, pError);
+				SWarning Warning(Localize("Error loading demo"), pError);
+				Warning.m_AutoHide = false;
+				AddWarning(Warning);
+			}
 			m_aCmdPlayDemo[0] = 0;
 		}
 
@@ -3749,6 +3802,10 @@ void CClient::Run()
 
 	m_UdpPortTest.StopAndWait();
 	m_ServerBrowser.Shutdown();
+#if defined(CONF_FAMILY_WINDOWS)
+	if(DemoWindow)
+		DestroyWindow(DemoWindow);
+#endif
 	m_Fifo.Shutdown();
 	m_pHttp->Shutdown();
 	Engine()->ShutdownJobs();
@@ -5026,7 +5083,7 @@ static bool UnknownArgumentCallback(const char *pCommand, void *pUser)
 		pClient->HandleConnectLink(pCommand);
 		return true;
 	}
-	else if(str_endswith(pCommand, ".demo"))
+	else if(str_endswith_nocase(pCommand, ".demo"))
 	{
 		pClient->HandleDemoPath(pCommand);
 		return true;
@@ -5103,6 +5160,41 @@ int main(int argc, const char **argv)
 	CWindowsComLifecycle WindowsComLifecycle(true);
 #endif
 	CCmdlineFix CmdlineFix(&argc, &argv);
+
+#if defined(CONF_FAMILY_WINDOWS)
+	// Explorer can launch a file association with the demo folder as its working directory.
+	std::string DemoPath;
+	if(argc == 2 && str_endswith_nocase(argv[1], ".demo"))
+	{
+		wchar_t aAbsolute[IO_MAX_PATH_LENGTH];
+		const DWORD Length = GetFullPathNameW(windows_utf8_to_wide(argv[1]).c_str(), std::size(aAbsolute), aAbsolute, nullptr);
+		if(Length > 0 && Length < std::size(aAbsolute))
+		{
+			auto Absolute = windows_wide_to_utf8(aAbsolute);
+			if(Absolute && Absolute->size() < IO_MAX_PATH_LENGTH && fs_is_file(Absolute->c_str()))
+			{
+				DemoPath = std::move(*Absolute);
+				HWND Window = FindWindowExW(HWND_MESSAGE, nullptr, AXION_DEMO_WINDOW, AXION_DEMO_WINDOW);
+				if(Window)
+				{
+					COPYDATASTRUCT Data{AXION_DEMO_MESSAGE, static_cast<DWORD>(DemoPath.size() + 1), DemoPath.data()};
+					DWORD_PTR Accepted = 0;
+					if(SendMessageTimeoutW(Window, WM_COPYDATA, 0, reinterpret_cast<LPARAM>(&Data), SMTO_ABORTIFHUNG, 3000, &Accepted) && Accepted)
+						return 0;
+				}
+
+				wchar_t aExecutable[IO_MAX_PATH_LENGTH];
+				const DWORD ExeLength = GetModuleFileNameW(nullptr, aExecutable, std::size(aExecutable));
+				if(ExeLength > 0 && ExeLength < std::size(aExecutable))
+				{
+					std::wstring Directory(aExecutable, ExeLength);
+					Directory.resize(Directory.find_last_of(L'\\') + 1);
+					SetCurrentDirectoryW(Directory.c_str());
+				}
+			}
+		}
+	}
+#endif
 
 	std::vector<std::shared_ptr<ILogger>> vpLoggers;
 	std::shared_ptr<ILogger> pStdoutLogger = nullptr;
@@ -5465,7 +5557,12 @@ int main(int argc, const char **argv)
 
 	// parse the command line arguments
 	pConsole->SetUnknownCommandCallback(UnknownArgumentCallback, pClient);
-	pConsole->ParseArguments(argc - 1, &argv[1]);
+	#if defined(CONF_FAMILY_WINDOWS)
+	if(!DemoPath.empty())
+		pClient->HandleDemoPath(DemoPath.c_str());
+	else
+#endif
+		pConsole->ParseArguments(argc - 1, &argv[1]);
 	pConsole->SetUnknownCommandCallback(IConsole::EmptyUnknownCommandCallback, nullptr);
 
 	if(pSteam->GetConnectAddress())
