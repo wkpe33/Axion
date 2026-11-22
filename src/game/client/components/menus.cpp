@@ -2314,6 +2314,8 @@ void CMenus::SetActive(bool Active)
 
 void CMenus::OnShutdown()
 {
+	if(AssetsEditorIsOpen())
+		AssetsEditorCloseNow();
 	m_CommunityIcons.Shutdown();
 }
 

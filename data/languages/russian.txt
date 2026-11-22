@@ -2692,3 +2692,69 @@ Always predict frozen players
 
 No country flags match your filter criteria
 == 
+
+Assets editor
+== Редактор текстур
+
+Back to editor
+== Назад в редактор
+
+Donor
+== Источник
+
+Result
+== Результат
+
+Explore
+== Выбрать текстуру
+
+Change color
+== Поменять цвет
+
+Restore part
+== Восстановить
+
+Part removed.
+== Элемент удалён.
+
+Part reset.
+== Элемент восстановлен.
+
+Custom color
+== Цвет элемента
+
+Blend mode
+== Режим наложения
+
+Reset All
+== Сбросить всё
+
+Export
+== Экспорт
+
+Reload
+== Перезагрузить
+
+Drop on the right to replace one part.
+== Отпусти справа, чтобы заменить элемент.
+
+Drag from left to right. Right-click to edit a part.
+== Перетаскивай слева направо. ПКМ открывает меню элемента.
+
+Save asset before closing?
+== Сохранить текстуру перед закрытием?
+
+You have unsaved changes.
+== Есть несохранённые изменения.
+
+Exported to %s
+== Сохранено в %s
+
+Asset with this name already exists.
+== Текстура с таким именем уже существует.
+
+Export name contains invalid characters.
+== В имени есть недопустимые символы.
+
+Failed to write PNG export.
+== Не удалось сохранить PNG.

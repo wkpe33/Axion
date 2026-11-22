@@ -268,6 +268,11 @@ void CMenus::SetNeedSendInfo()
 
 void CMenus::RenderSettings(CUIRect MainView)
 {
+	if(AssetsEditorIsOpen() && !AssetsEditorPicking())
+	{
+		RenderAssetsEditorScreen(MainView);
+		return;
+	}
 	// render background
 	CUIRect Button, TabBar, RestartBar;
 	MainView.VSplitRight(120.0f, &MainView, &TabBar);

@@ -245,6 +245,7 @@ static size_t gs_aCustomListSize[NUMBER_OF_ASSETS_TABS] = {
 static CLineInputBuffered<64> s_aFilterInputs[NUMBER_OF_ASSETS_TABS];
 
 static int s_CurCustomTab = ASSETS_TAB_ENTITIES;
+static int s_EditorImageTab = 0;
 
 static const CMenus::SCustomItem *GetCustomItem(int CurTab, size_t Index)
 {
@@ -370,9 +371,40 @@ static int InitSearchList(std::vector<const TName *> &vpSearchList, std::vector<
 void CMenus::RenderSettingsAssets(CUIRect MainView)
 {
 	CUIRect TabBar, CustomList, QuickSearch, DirectoryButton, ReloadButton;
+	const bool Picking = AssetsEditorPicking();
+	if(Picking)
+	{
+		CUIRect Back;
+		MainView.HSplitTop(20.0f, &Back, &MainView);
+		Back.VSplitLeft(130.0f, &Back, nullptr);
+		static CButtonContainer s_Back;
+		if(DoButton_Menu(&s_Back, Localize("Back to editor"), 0, &Back) || Ui()->ConsumeHotkey(CUi::HOTKEY_ESCAPE))
+		{
+			AssetsEditorCancelPick();
+			return;
+		}
+		MainView.HSplitTop(5.0f, nullptr, &MainView);
+		if(s_CurCustomTab == ASSETS_TAB_AUDIO)
+			s_CurCustomTab = ASSETS_TAB_GAME;
+	}
+	else
+	{
+		CUIRect Editor;
+		MainView.HSplitTop(22.0f, &Editor, &MainView);
+		Editor.VSplitRight(140.0f, nullptr, &Editor);
+		static CButtonContainer s_Editor;
+		if(DoButton_Menu(&s_Editor, Localize("Assets editor"), 0, &Editor))
+		{
+			AssetsEditorOpen();
+			return;
+		}
+		MainView.HSplitTop(5.0f, nullptr, &MainView);
+	}
 
 	MainView.HSplitTop(20.0f, &TabBar, &MainView);
-	const float TabWidth = TabBar.w / (float)NUMBER_OF_ASSETS_TABS;
+	const int StandardTabs = Picking ? ASSETS_TAB_AUDIO : NUMBER_OF_ASSETS_TABS;
+	const int VisibleTabs = StandardTabs + (Picking ? 2 : 0);
+	const float TabWidth = TabBar.w / VisibleTabs;
 	static CButtonContainer s_aPageTabs[NUMBER_OF_ASSETS_TABS] = {};
 	const char *apTabNames[NUMBER_OF_ASSETS_TABS] = {
 		Localize("Entities"),
@@ -383,16 +415,37 @@ void CMenus::RenderSettingsAssets(CUIRect MainView)
 		Localize("Extras"),
 		Localize("Audio")};
 
-	for(int Tab = ASSETS_TAB_ENTITIES; Tab < NUMBER_OF_ASSETS_TABS; ++Tab)
+	for(int Tab = ASSETS_TAB_ENTITIES; Tab < StandardTabs; ++Tab)
 	{
 		CUIRect Button;
 		TabBar.VSplitLeft(TabWidth, &Button, &TabBar);
-		const int Corners = Tab == ASSETS_TAB_ENTITIES ? IGraphics::CORNER_L : (Tab == NUMBER_OF_ASSETS_TABS - 1 ? IGraphics::CORNER_R : IGraphics::CORNER_NONE);
-		if(DoButton_MenuTab(&s_aPageTabs[Tab], apTabNames[Tab], s_CurCustomTab == Tab, &Button, Corners, nullptr, nullptr, nullptr, nullptr, 4.0f))
+		const int Corners = Tab == ASSETS_TAB_ENTITIES ? IGraphics::CORNER_L : (Tab == VisibleTabs - 1 ? IGraphics::CORNER_R : IGraphics::CORNER_NONE);
+		if(DoButton_MenuTab(&s_aPageTabs[Tab], apTabNames[Tab], (!Picking || s_EditorImageTab == 0) && s_CurCustomTab == Tab, &Button, Corners, nullptr, nullptr, nullptr, nullptr, 4.0f))
 		{
 			s_CurCustomTab = Tab;
+			s_EditorImageTab = 0;
 		}
 	}
+
+	if(Picking)
+	{
+		static CButtonContainer s_aImageTabs[2];
+		const char *apNames[] = {Localize("Cursor"), Localize("Arrow")};
+		for(int i = 0; i < 2; ++i)
+		{
+			CUIRect Button;
+			TabBar.VSplitLeft(TabWidth, &Button, &TabBar);
+			if(DoButton_MenuTab(&s_aImageTabs[i], apNames[i], s_EditorImageTab == i + 1, &Button, i == 1 ? IGraphics::CORNER_R : IGraphics::CORNER_NONE, nullptr))
+				s_EditorImageTab = i + 1;
+		}
+		if(s_EditorImageTab)
+		{
+			AssetsEditorRenderSingleImagePicker(MainView, ASSETS_TAB_AUDIO + s_EditorImageTab - 1);
+			return;
+		}
+	}
+	else
+		s_EditorImageTab = 0;
 
 	if(s_CurCustomTab == ASSETS_TAB_AUDIO)
 	{
@@ -623,7 +676,7 @@ void CMenus::RenderSettingsAssets(CUIRect MainView)
 				OldSelected = i;
 		}
 
-		const CListboxItem Item = s_ListBox.DoNextItem(pItem, OldSelected >= 0 && (size_t)OldSelected == i);
+		const CListboxItem Item = s_ListBox.DoNextItem(pItem, !Picking && OldSelected >= 0 && (size_t)OldSelected == i);
 		CUIRect ItemRect = Item.m_Rect;
 		ItemRect.Margin(Margin / 2, &ItemRect);
 		auto *pMutable = const_cast<SCustomItem *>(pItem); // Owned mutable lists above.
@@ -669,7 +722,15 @@ void CMenus::RenderSettingsAssets(CUIRect MainView)
 	}
 
 	const int NewSelected = s_ListBox.DoEnd();
-	if(OldSelected != NewSelected)
+	if(Picking)
+		OldSelected = -1;
+	if(Picking && NewSelected >= 0 && NewSelected < (int)SearchListSize &&
+		(NewSelected != OldSelected || s_ListBox.WasItemActivated()))
+	{
+		AssetsEditorPick(s_CurCustomTab, GetCustomItem(s_CurCustomTab, NewSelected)->m_aName);
+		return;
+	}
+	if(!Picking && OldSelected != NewSelected && NewSelected >= 0 && NewSelected < (int)SearchListSize)
 	{
 		if(GetCustomItem(s_CurCustomTab, NewSelected)->m_aName[0] != '\0')
 		{
