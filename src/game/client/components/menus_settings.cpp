@@ -268,6 +268,12 @@ void CMenus::SetNeedSendInfo()
 
 void CMenus::RenderSettings(CUIRect MainView)
 {
+	if(s_AudioPackEditorOpen)
+	{
+		RenderAudioPackEditor(MainView);
+		return;
+	}
+
 	if(AssetsEditorIsOpen() && !AssetsEditorPicking())
 	{
 		RenderAssetsEditorScreen(MainView);

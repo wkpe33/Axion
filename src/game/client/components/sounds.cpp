@@ -40,29 +40,8 @@ void CSoundLoading::Run()
 				return;
 
 			const char *pFilename = g_pData->m_aSounds[s].m_aSounds[i].m_pFilename;
-			const char *pSuffix = str_startswith(pFilename, "audio/");
-			if(!pSuffix)
-				pSuffix = pFilename;
-			char aPath[512];
-			const char *pSelected = pFilename;
-			if(str_comp(m_aPack, ".") != 0 && str_comp(m_aPack, "..") != 0 && !str_find(m_aPack, "/") && !str_find(m_aPack, "\\"))
-			{
-				for(const char *pBase : {"assets/audio", "audio"})
-				{
-					str_format(aPath, sizeof(aPath), "%s/%s/%s", pBase, m_aPack, pSuffix);
-					if(m_pGameClient->Storage()->FileExists(aPath, IStorage::TYPE_ALL))
-					{
-						pSelected = aPath;
-						break;
-					}
-					str_format(aPath, sizeof(aPath), "%s/%s/%s", pBase, m_aPack, pFilename);
-					if(m_pGameClient->Storage()->FileExists(aPath, IStorage::TYPE_ALL))
-					{
-						pSelected = aPath;
-						break;
-					}
-				}
-			}
+			char aPath[IO_MAX_PATH_LENGTH];
+			const char *pSelected = CSounds::ResolvePackFile(m_pGameClient->Storage(), m_aPack, pFilename, aPath);
 			int Id = m_pGameClient->Sound()->LoadWV(pSelected);
 			g_pData->m_aSounds[s].m_aSounds[i].m_Id = Id;
 			// try to render a frame
@@ -107,6 +86,58 @@ void CSounds::UpdateChannels()
 	}
 }
 
+const char *CSounds::ResolvePackFile(IStorage *pStorage, const char *pPack, const char *pFile, char (&aPath)[IO_MAX_PATH_LENGTH])
+{
+	if(!*pPack || !str_comp(pPack, "default") || !str_comp(pPack, ".") || !str_comp(pPack, "..") ||
+		str_find(pPack, "/") || str_find(pPack, "\\"))
+		return pFile;
+	const char *pShort = str_startswith(pFile, "audio/");
+	for(const char *pRoot : {"assets/audio", "audio"})
+		for(const char *pName : {pShort ? pShort : pFile, pFile})
+		{
+			str_format(aPath, sizeof(aPath), "%s/%s/%s", pRoot, pPack, pName);
+			if(pStorage->FileExists(aPath, IStorage::TYPE_ALL))
+				return aPath;
+		}
+	return pFile;
+}
+
+bool CSounds::PreviewPackSound(int SoundId, const char *pPack)
+{
+	if(!Sound()->IsSoundEnabled() || SoundId < 0 || SoundId >= g_pData->m_NumSounds)
+		return false;
+	const auto &Set = g_pData->m_aSounds[SoundId];
+	if(!Set.m_NumSounds)
+		return false;
+	static int s_PreviewSample = -1;
+	if(s_PreviewSample >= 0)
+		Sound()->UnloadSample(s_PreviewSample);
+	char aPath[IO_MAX_PATH_LENGTH];
+	s_PreviewSample = Sound()->LoadWV(ResolvePackFile(Storage(), pPack, Set.m_aSounds[0].m_pFilename, aPath));
+	if(s_PreviewSample < 0)
+		return false;
+	constexpr int PreviewChannel = 5;
+	Sound()->SetChannel(PreviewChannel, 1.0f, 0.0f);
+	Sound()->Play(PreviewChannel, s_PreviewSample, 0, 1.0f);
+	return true;
+}
+
+char *CSounds::OverridePack(int SoundId)
+{
+	switch(SoundId)
+	{
+	case SOUND_HAMMER_HIT: return g_Config.m_AxSound0;
+	case SOUND_HAMMER_FIRE: return g_Config.m_AxSound1;
+	case SOUND_HOOK_ATTACH_GROUND: return g_Config.m_AxSound2;
+	case SOUND_HOOK_ATTACH_PLAYER: return g_Config.m_AxSound3;
+	case SOUND_PLAYER_AIRJUMP: return g_Config.m_AxSound4;
+	case SOUND_TEE_CRY: return g_Config.m_AxSound5;
+	case SOUND_PLAYER_SPAWN: return g_Config.m_AxSound6;
+	case SOUND_PLAYER_DIE: return g_Config.m_AxSound7;
+	default: return nullptr;
+	}
+}
+
 int CSounds::GetSampleId(int SetId)
 {
 	if(!g_Config.m_SndEnable || !Sound()->IsSoundEnabled() || m_WaitForSoundJob || SetId < 0 || SetId >= g_pData->m_NumSounds)
@@ -116,6 +147,27 @@ int CSounds::GetSampleId(int SetId)
 	if(!pSet->m_NumSounds)
 		return -1;
 
+	if(char *pPack = OverridePack(SetId); pPack && *pPack && !str_find(pPack, "/") && !str_find(pPack, "\\") && str_comp(pPack, "..") && str_comp(pPack, "."))
+	{
+		struct SOverride { std::string m_Pack; std::vector<int> m_vSamples; };
+		static SOverride s_aOverrides[NUM_SOUNDS];
+		auto &Override = s_aOverrides[SetId];
+		if(Override.m_Pack != pPack)
+		{
+			for(int Id : Override.m_vSamples)
+				if(Id >= 0) Sound()->UnloadSample(Id);
+			Override.m_vSamples.clear();
+			Override.m_Pack = pPack;
+			for(int i = 0; i < pSet->m_NumSounds; ++i)
+			{
+				const char *pFile = pSet->m_aSounds[i].m_pFilename;
+				char aPath[IO_MAX_PATH_LENGTH];
+				const int Id = Sound()->LoadWV(ResolvePackFile(Storage(), pPack, pFile, aPath));
+				Override.m_vSamples.push_back(Id);
+			}
+		}
+		return Override.m_vSamples[rand() % Override.m_vSamples.size()];
+	}
 	if(pSet->m_NumSounds == 1)
 		return pSet->m_aSounds[0].m_Id;
 

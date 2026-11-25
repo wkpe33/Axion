@@ -10,6 +10,8 @@
 
 #include <game/client/component.h>
 
+class IStorage;
+
 class CSoundLoading : public IJob
 {
 	CGameClient *m_pGameClient;
@@ -50,6 +52,9 @@ class CSounds : public CComponent
 	float m_BackgroundMusicVolume = -1.0f;
 
 public:
+	static char *OverridePack(int SoundId);
+	static const char *ResolvePackFile(IStorage *pStorage, const char *pPack, const char *pFile, char (&aPath)[IO_MAX_PATH_LENGTH]);
+	bool PreviewPackSound(int SoundId, const char *pPack);
 	// sound channels
 	enum
 	{

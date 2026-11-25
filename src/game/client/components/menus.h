@@ -606,6 +606,8 @@ protected:
 	bool RenderHslaScrollbars(CUIRect *pRect, unsigned int *pColor, bool Alpha, float DarkestLight);
 
 	// found in menus_settings_assets.cpp
+	static bool s_AudioPackEditorOpen;
+	void RenderAudioPackEditor(CUIRect View);
 	void RenderSettingsAssets(CUIRect MainView);
 
 	// found in menus_settings_appearance.cpp

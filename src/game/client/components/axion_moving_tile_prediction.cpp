@@ -201,7 +201,12 @@ void CAxionMovingTilePrediction::GetAnimationTransform(float GlobalTime, int Env
 
 void CAxionMovingTilePrediction::UpdateForTick(int GameTick, int RoundStartTick, int TickSpeed)
 {
-	if(!g_Config.m_AxMovingTilePrediction || m_vQuads.empty() || TickSpeed <= 0)
+	UpdateForTick(GameTick, RoundStartTick, TickSpeed, false);
+}
+
+void CAxionMovingTilePrediction::UpdateForTick(int GameTick, int RoundStartTick, int TickSpeed, bool Practice)
+{
+	if((!Practice && !g_Config.m_AxMovingTilePrediction) || m_vQuads.empty() || TickSpeed <= 0)
 		return;
 	if(GameTick == m_LastUpdatedTick)
 		return;
@@ -234,9 +239,14 @@ void CAxionMovingTilePrediction::UpdateForTick(int GameTick, int RoundStartTick,
 
 void CAxionMovingTilePrediction::HandleCharacter(CCharacter *pCharacter) const
 {
-	if(!g_Config.m_AxMovingTilePrediction || !pCharacter || m_vQuads.empty())
+	HandleCharacter(pCharacter, false);
+}
+
+void CAxionMovingTilePrediction::HandleCharacter(CCharacter *pCharacter, bool Practice) const
+{
+	if((!Practice && !g_Config.m_AxMovingTilePrediction) || !pCharacter || m_vQuads.empty())
 		return;
-	if(!pCharacter->GameWorld()->m_WorldConfig.m_PredictFreeze)
+	if(!Practice && !pCharacter->GameWorld()->m_WorldConfig.m_PredictFreeze)
 		return;
 
 	bool InQuadFreeze = false;

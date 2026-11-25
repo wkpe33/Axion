@@ -290,3 +290,12 @@ MACRO_CONFIG_INT(TcUiCompactList, tc_ui_compact_list, 0, 0, 1, CFGFLAG_CLIENT | 
 MACRO_CONFIG_INT(TcShowhudDummyPosition, tc_showhud_dummy_position, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Show ingame HUD (Dummy Position)")
 MACRO_CONFIG_INT(TcShowhudDummySpeed, tc_showhud_dummy_speed, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Show ingame HUD (Dummy Speed)")
 MACRO_CONFIG_INT(TcShowhudDummyAngle, tc_showhud_dummy_angle, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Show ingame HUD (Dummy Aim Angle)")
+
+MACRO_CONFIG_STR(AxSound0, ax_sound_hammer_hit, 64, "", CFGFLAG_CLIENT | CFGFLAG_SAVE, "Override sound pack for HAMMER_HIT")
+MACRO_CONFIG_STR(AxSound1, ax_sound_hammer_fire, 64, "", CFGFLAG_CLIENT | CFGFLAG_SAVE, "Override sound pack for HAMMER_FIRE")
+MACRO_CONFIG_STR(AxSound2, ax_sound_hook_attach_ground, 64, "", CFGFLAG_CLIENT | CFGFLAG_SAVE, "Override sound pack for HOOK_ATTACH_GROUND")
+MACRO_CONFIG_STR(AxSound3, ax_sound_hook_attach_player, 64, "", CFGFLAG_CLIENT | CFGFLAG_SAVE, "Override sound pack for HOOK_ATTACH_PLAYER")
+MACRO_CONFIG_STR(AxSound4, ax_sound_player_jump, 64, "", CFGFLAG_CLIENT | CFGFLAG_SAVE, "Override sound pack for PLAYER_JUMP")
+MACRO_CONFIG_STR(AxSound5, ax_sound_tee_cry, 64, "", CFGFLAG_CLIENT | CFGFLAG_SAVE, "Override sound pack for TEE_CRY")
+MACRO_CONFIG_STR(AxSound6, ax_sound_player_spawn, 64, "", CFGFLAG_CLIENT | CFGFLAG_SAVE, "Override sound pack for PLAYER_SPAWN")
+MACRO_CONFIG_STR(AxSound7, ax_sound_player_die, 64, "", CFGFLAG_CLIENT | CFGFLAG_SAVE, "Override sound pack for PLAYER_DIE")

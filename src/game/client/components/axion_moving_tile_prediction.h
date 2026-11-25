@@ -37,7 +37,9 @@ public:
 	void Reset();
 
 	void UpdateForTick(int GameTick, int RoundStartTick, int TickSpeed);
+	void UpdateForTick(int GameTick, int RoundStartTick, int TickSpeed, bool Practice);
 	void HandleCharacter(CCharacter *pCharacter) const;
+	void HandleCharacter(CCharacter *pCharacter, bool Practice) const;
 
 private:
 	std::vector<CPredQuad> m_vQuads;

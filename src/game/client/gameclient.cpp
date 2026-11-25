@@ -1938,6 +1938,9 @@ void CGameClient::OnNewSnapshot(bool DummySwapped)
 					m_aClients[pInfo->m_ClientId].m_Active = true;
 					m_Snap.m_apPlayerInfos[pInfo->m_ClientId] = pInfo;
 					m_Snap.m_apPrevPlayerInfos[pInfo->m_ClientId] = static_cast<const CNetObj_PlayerInfo *>(Client()->SnapFindItem(IClient::SNAP_PREV, Item.m_Type, pInfo->m_ClientId));
+					const auto *pPrevious = m_Snap.m_apPrevPlayerInfos[pInfo->m_ClientId];
+					if(pPrevious && pPrevious->m_Team != TEAM_SPECTATORS && pInfo->m_Team == TEAM_SPECTATORS && !m_SuppressEvents)
+						m_Sounds.Play(CSounds::CHN_GLOBAL, SOUND_TEE_CRY, 1.0f);
 					m_Snap.m_NumPlayers++;
 
 					if(pInfo->m_Local)

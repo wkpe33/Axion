@@ -1737,7 +1737,33 @@ void CFastPractice::TickPracticeWorld()
 		if(pDummyInputData)
 			pDummyChar->OnPredictedInput(pDummyInputData);
 		Collision()->SetExtraDoorTiles(m_vExtraDoorTiles.empty() ? nullptr : m_vExtraDoorTiles.data());
+		const vec2 LocalBefore = pLocalChar->Core()->m_Pos;
+		const vec2 DummyBefore = pDummyChar ? pDummyChar->Core()->m_Pos : vec2(0, 0);
+		GameClient()->m_AxionMovingTilePrediction.UpdateForTick(Tick, GameClient()->m_Snap.m_pGameInfoObj ? GameClient()->m_Snap.m_pGameInfoObj->m_RoundStartTick : 0, Client()->GameTickSpeed(), true);
+		m_PracticeWorld.m_pAxionMovingTilePrediction = nullptr;
 		m_PracticeWorld.Tick();
+		auto ApplyTiles = [&](CCharacter *pChar, vec2 Before) {
+			if(!pChar) return;
+			GameClient()->m_AxionMovingTilePrediction.HandleCharacter(pChar, true);
+			auto vIndices = Collision()->GetMapIndices(Before, pChar->Core()->m_Pos);
+			vIndices.push_back(Collision()->GetPureMapIndex(pChar->Core()->m_Pos));
+			for(int Index : vIndices)
+			{
+				const int Evil = Collision()->IsEvilTeleport(Index);
+				const int Number = Evil ? Evil : Collision()->IsTeleport(Index);
+				if(Number <= 0) continue;
+				const auto &vOuts = Collision()->TeleOuts(Number - 1);
+				if(vOuts.empty()) continue;
+				const vec2 Velocity = pChar->Core()->m_Vel;
+				TeleportCharacter(pChar, vOuts[Tick % vOuts.size()]);
+				auto Core = pChar->GetCore();
+				Core.m_Vel = Evil ? vec2(0, 0) : Velocity;
+				pChar->SetCore(Core);
+				break;
+			}
+		};
+		ApplyTiles(m_PracticeWorld.GetCharacterById(LocalClientId), LocalBefore);
+		if(pDummyChar) ApplyTiles(m_PracticeWorld.GetCharacterById(DummyClientId), DummyBefore);
 		Collision()->SetExtraDoorTiles(nullptr);
 		m_PracticeWorld.m_WorldConfig.m_PredictEvents = PredictEvents;
 
@@ -2460,7 +2486,7 @@ bool CFastPractice::ExecutePracticeMetaCommand(const std::string &Cmd)
 	}
 	if(Cmd == "practicecmdlist")
 	{
-		EchoPractice("available commands: /r /back /rescuemode /tp /teleport /tpxy /lasttp /tc /telecursor /totele /totelecp /solo /unsolo /deep /undeep /livefreeze /unlivefreeze /shotgun /grenade /laser /rifle /unshotgun /ungrenade /unlaser /unrifle /weapons /unweapons /addweapon /removeweapon /jetpack /unjetpack /infjump /uninfjump /setjumps /ninja /unninja /endless /unendless /invincible /collision /hookcollision /hitothers /practice /unpractice");
+		EchoPractice("available commands: /r /back /rescuemode /tp /teleport /tpxy /lasttp /tc /telecursor /totele /totelecp /solo /unsolo /deep /undeep /livefreeze /unlivefreeze /shotgun /grenade /laser /rifle /unshotgun /ungrenade /unlaser /unrifle /weapons /unweapons /addweapon /removeweapon /jetpack /unjetpack /infjump /uninfjump /setjumps /ninja /unninja /endless /unendless /invincible /collision /hookcollision /hitothers /setswitch /practice /unpractice");
 		return true;
 	}
 	if(Cmd == "kill")
@@ -2903,6 +2929,28 @@ bool CFastPractice::ExecutePracticeCommand(int LocalClientId, CCharacter *pChar,
 		return false;
 
 	const std::string Cmd = LowercaseCopy(vArgs[0].substr(1));
+	if(Cmd == "setswitch")
+	{
+		int Number = -1, Value = 0, Seconds = 0;
+		const int Team = pChar->Team();
+		auto &vSwitches = m_PracticeWorld.Switchers();
+		if(vArgs.size() < 2 || vArgs.size() > 4 || !str_toint(vArgs[1].c_str(), &Number) ||
+			Number < 0 || Number >= (int)vSwitches.size() || Team < 0 || Team >= MAX_CLIENTS ||
+			(vArgs.size() >= 3 && !str_toint(vArgs[2].c_str(), &Value)) ||
+			(vArgs.size() == 4 && (!str_toint(vArgs[3].c_str(), &Seconds) || Seconds < 0 ||
+				Seconds > (INT_MAX - m_PracticeWorld.GameTick() - 1) / Client()->GameTickSpeed())))
+		{
+			EchoPractice("Usage: /setswitch number [0|1] [seconds]");
+			return true;
+		}
+		auto &Switch = vSwitches[Number];
+		const bool Open = vArgs.size() == 2 ? !Switch.m_aStatus[Team] : Value != 0;
+		const bool Timed = vArgs.size() == 4;
+		Switch.m_aStatus[Team] = Open;
+		Switch.m_aEndTick[Team] = Timed ? m_PracticeWorld.GameTick() + 1 + Seconds * Client()->GameTickSpeed() : 0;
+		Switch.m_aType[Team] = Open ? (Timed ? TILE_SWITCHTIMEDOPEN : TILE_SWITCHOPEN) : (Timed ? TILE_SWITCHTIMEDCLOSE : TILE_SWITCHCLOSE);
+		return true;
+	}
 	if(ExecutePracticeMetaCommand(Cmd))
 		return true;
 	if(ExecutePracticeRescueCommand(LocalClientId, pChar, Cmd, vArgs))

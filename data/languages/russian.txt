@@ -2758,3 +2758,72 @@ Export name contains invalid characters.
 
 Failed to write PNG export.
 == Не удалось сохранить PNG.
+
+Enter a valid pack name
+== Введите допустимое имя пака
+
+A sound pack with this name already exists
+== Пак с таким именем уже существует
+
+Could not create a temporary folder
+== Не удалось создать временную папку
+
+Sound pack saved
+== Пак сохранён
+
+Could not save sound pack
+== Не удалось сохранить пак
+
+Sound pack editor
+== Редактор аудиопаков
+
+Back
+== Назад
+
+New sound pack name
+== Название нового пака
+
+Save sound pack
+== Сохранить пак
+
+Source pack
+== Источник
+
+Base pack and result
+== Основа и результат
+
+Hammer hit
+== Попадание молотком
+
+Hammer swing
+== Взмах молотком
+
+Hook attaches to wall
+== Крюк за стену
+
+Hook attaches to player
+== Крюк за игрока
+
+Respawn
+== Возрождение
+
+Spectating
+== Наблюдение
+
+Sound unavailable
+== Звук недоступен
+
+Drag a sound to the right or click its arrow
+== Перетащи звук вправо или нажми стрелку в его строке
+
+Create sound pack
+== Создать аудиопак
+
+Double jump
+== Двойной прыжок
+
+Sound pack: %s
+== Пак: %s
+
+Audio directory
+== Папка аудиопаков

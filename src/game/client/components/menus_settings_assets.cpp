@@ -1,6 +1,9 @@
 #include "menus.h"
 
 #include <base/dbg.h>
+#include <base/fs.h>
+#include <base/io.h>
+#include <generated/client_data.h>
 #include <base/str.h>
 #include <base/time.h>
 
@@ -13,6 +16,7 @@
 
 #include <game/client/gameclient.h>
 #include <game/client/ui_listbox.h>
+#include <game/client/ui_scrollregion.h>
 #include <game/localization.h>
 
 #include <chrono>
@@ -368,6 +372,216 @@ static int InitSearchList(std::vector<const TName *> &vpSearchList, std::vector<
 	return vAssetList.size();
 }
 
+namespace
+{
+constexpr int AUDIO_EVENTS[] = {SOUND_HAMMER_HIT, SOUND_HAMMER_FIRE, SOUND_HOOK_ATTACH_GROUND, SOUND_HOOK_ATTACH_PLAYER, SOUND_PLAYER_AIRJUMP, SOUND_PLAYER_SPAWN, SOUND_PLAYER_DIE};
+std::vector<std::string> s_Packs;
+std::string s_Donor, s_Base, s_Status, s_aSources[std::size(AUDIO_EVENTS)];
+CLineInputBuffered<64> s_ExportName;
+
+void ScanAudioPacks(IStorage *pStorage)
+{
+	s_Packs = {"default"};
+	const auto Scan = [](const char *pName, int IsDir, int, void *pData) {
+		auto &Packs = *static_cast<std::vector<std::string> *>(pData);
+		if(IsDir && pName[0] != '.' && std::find(Packs.begin(), Packs.end(), pName) == Packs.end())
+			Packs.emplace_back(pName);
+		return 0;
+	};
+	pStorage->ListDirectory(IStorage::TYPE_ALL, "assets/audio", Scan, &s_Packs);
+	pStorage->ListDirectory(IStorage::TYPE_ALL, "audio", Scan, &s_Packs);
+	std::sort(s_Packs.begin() + 1, s_Packs.end());
+}
+
+bool ExportAudioPack(IStorage *pStorage, const char *pName, const std::string &Base, const std::string (&aSources)[std::size(AUDIO_EVENTS)], std::string &Status)
+{
+	if(!*pName || str_comp_nocase(pName, "default") == 0 || pName[0] == '.' ||
+		pName[str_length(pName) - 1] == '.' || pName[str_length(pName) - 1] == ' ' ||
+		std::string(pName).find_first_of("<>:\"/\\|?*") != std::string::npos ||
+		std::any_of(pName, pName + str_length(pName), [](unsigned char Ch) { return Ch < 32; }))
+	{
+		Status = Localize("Enter a valid pack name");
+		return false;
+	}
+	const std::string Folder = std::string("assets/audio/") + pName;
+	const std::string Temp = "assets/audio/.axion-export";
+	if(pStorage->FolderExists(Folder.c_str(), IStorage::TYPE_ALL) || pStorage->FolderExists((std::string("audio/") + pName).c_str(), IStorage::TYPE_ALL))
+	{
+		Status = Localize("A sound pack with this name already exists");
+		return false;
+	}
+	pStorage->CreateFolder("assets", IStorage::TYPE_SAVE);
+	pStorage->CreateFolder("assets/audio", IStorage::TYPE_SAVE);
+	if(pStorage->FolderExists(Temp.c_str(), IStorage::TYPE_SAVE) || !pStorage->CreateFolder(Temp.c_str(), IStorage::TYPE_SAVE))
+	{
+		Status = Localize("Could not create a temporary folder");
+		return false;
+	}
+	std::vector<std::string> vWritten;
+	bool Ok = true;
+	for(int Id = 0; Id < g_pData->m_NumSounds && Ok; ++Id)
+	{
+		const std::string *pPack = &Base;
+		for(size_t Index = 0; Index < std::size(AUDIO_EVENTS); ++Index)
+			if(AUDIO_EVENTS[Index] == Id && !aSources[Index].empty())
+				pPack = &aSources[Index];
+		const auto &Set = g_pData->m_aSounds[Id];
+		for(int Sample = 0; Sample < Set.m_NumSounds && Ok; ++Sample)
+		{
+			const char *pFile = Set.m_aSounds[Sample].m_pFilename;
+			const char *pShort = str_startswith(pFile, "audio/");
+			if(!pShort || str_find(pShort, "/"))
+				continue;
+			char aPath[IO_MAX_PATH_LENGTH];
+			const char *pSource = CSounds::ResolvePackFile(pStorage, pPack->c_str(), pFile, aPath);
+			void *pBytes = nullptr;
+			unsigned Size = 0;
+			if(!pStorage->ReadFile(pSource, IStorage::TYPE_ALL, &pBytes, &Size))
+			{
+				Ok = false;
+				break;
+			}
+			const std::string Dest = Temp + "/" + pShort;
+			IOHANDLE File = pStorage->OpenFile(Dest.c_str(), IOFLAG_WRITE, IStorage::TYPE_SAVE);
+			if(File)
+			{
+				vWritten.push_back(Dest);
+				Ok = io_write(File, pBytes, Size) == Size;
+				Ok = io_close(File) == 0 && Ok;
+			}
+			else
+				Ok = false;
+			free(pBytes);
+		}
+	}
+	if(Ok && pStorage->RenameFile(Temp.c_str(), Folder.c_str(), IStorage::TYPE_SAVE))
+	{
+		Status = Localize("Sound pack saved");
+		return true;
+	}
+	for(const auto &File : vWritten)
+		pStorage->RemoveFile(File.c_str(), IStorage::TYPE_SAVE);
+	char aTemp[IO_MAX_PATH_LENGTH];
+	pStorage->GetCompletePath(IStorage::TYPE_SAVE, Temp.c_str(), aTemp, sizeof(aTemp));
+	(void)fs_removedir(aTemp);
+	Status = Localize("Could not save sound pack");
+	return false;
+}
+}
+
+bool CMenus::s_AudioPackEditorOpen = false;
+
+void CMenus::RenderAudioPackEditor(CUIRect View)
+{
+	if(s_Packs.empty() || Input()->KeyPress(KEY_F5))
+		ScanAudioPacks(Storage());
+	bool RefreshAfterExport = false;
+	static CButtonContainer s_Close, s_Save, s_aPick[2];
+	static CButtonContainer s_aPlay[2][std::size(AUDIO_EVENTS)], s_aCopy[std::size(AUDIO_EVENTS)], s_aReset[std::size(AUDIO_EVENTS)];
+	static CUi::SSelectionPopupContext s_aPicker[2];
+	static CScrollRegion s_aPickerScroll[2];
+	static int s_Drag = -1;
+	View.Margin(8, &View);
+	View.Draw(ColorRGBA(0.075f, 0.08f, 0.09f, 0.98f), IGraphics::CORNER_ALL, 10);
+	View.Margin(14, &View);
+	CUIRect Header, Close, Footer, Save, Status;
+	View.HSplitTop(21, &Header, &View);
+	Header.VSplitRight(78, &Header, &Close);
+	Ui()->DoLabel(&Header, Localize("Sound pack editor"), 17, TEXTALIGN_ML);
+	if(DoButton_Menu(&s_Close, Localize("Back"), 0, &Close) || (!Ui()->IsPopupOpen() && Ui()->ConsumeHotkey(CUi::HOTKEY_ESCAPE)))
+	{
+		s_Drag = -1;
+		s_AudioPackEditorOpen = false;
+		return;
+	}
+	View.HSplitTop(10, nullptr, &View);
+	View.HSplitBottom(21, &View, &Footer);
+	View.HSplitBottom(20, &View, &Status);
+	Footer.VSplitRight(118, &Footer, &Save);
+	Footer.VSplitRight(8, &Footer, nullptr);
+	s_ExportName.SetEmptyText(Localize("New sound pack name"));
+	Ui()->DoEditBox(&s_ExportName, &Footer, 13);
+	if(DoButton_Menu(&s_Save, Localize("Save sound pack"), 0, &Save))
+		RefreshAfterExport = ExportAudioPack(Storage(), s_ExportName.GetString(), s_Base, s_aSources, s_Status);
+
+	View.HSplitTop(std::min(View.h, 62.0f + 29.0f * std::size(AUDIO_EVENTS)), &View, nullptr);
+	CUIRect aPanels[2];
+	View.VSplitMid(&aPanels[0], &aPanels[1], 14);
+	std::string *apPacks[] = {&s_Donor, &s_Base};
+	const char *apTitles[] = {Localize("Source pack"), Localize("Base pack and result")};
+	const char *apLabels[] = {Localize("Hammer hit"), Localize("Hammer swing"), Localize("Hook attaches to wall"), Localize("Hook attaches to player"), Localize("Double jump"), Localize("Respawn"), Localize("Spectating")};
+	const bool Released = !Ui()->MouseButton(0) && Ui()->LastMouseButton(0);
+	for(int Side = 0; Side < 2; ++Side)
+	{
+		CUIRect Panel = aPanels[Side];
+		Panel.Draw(ColorRGBA(1, 1, 1, 0.06f), IGraphics::CORNER_ALL, 7);
+		Panel.Margin(9, &Panel);
+		CUIRect Title, Picker;
+		Panel.HSplitTop(19, &Title, &Panel);
+		Ui()->DoLabel(&Title, apTitles[Side], 14, TEXTALIGN_ML);
+		Panel.HSplitTop(20, &Picker, &Panel);
+		auto &Popup = s_aPicker[Side];
+		if(Popup.m_pSelection)
+		{
+			*apPacks[Side] = *Popup.m_pSelection;
+			Popup.m_pSelection = nullptr;
+		}
+		char aPickLabel[128];
+		str_format(aPickLabel, sizeof(aPickLabel), Localize("Sound pack: %s"), apPacks[Side]->c_str());
+		if(DoButton_Menu(&s_aPick[Side], aPickLabel, 0, &Picker))
+		{
+			Popup.Reset();
+			Popup.m_pScrollRegion = &s_aPickerScroll[Side];
+			Popup.m_vEntries = s_Packs;
+			Popup.m_Width = Picker.w;
+			Ui()->ShowPopupSelection(Picker.x, Picker.y + Picker.h, &Popup);
+		}
+		Panel.HSplitTop(6, nullptr, &Panel);
+		const float RowHeight = Panel.h / std::size(AUDIO_EVENTS);
+		for(size_t Index = 0; Index < std::size(AUDIO_EVENTS); ++Index)
+		{
+			CUIRect Row, Listen, Action;
+			Panel.HSplitTop(RowHeight, &Row, &Panel);
+			Row.HMargin(2, &Row);
+			const bool Over = Row.Inside(Ui()->MousePos());
+			const bool Drop = Side == 1 && s_Drag == (int)Index;
+			Row.Draw(ColorRGBA(1, 1, 1, Drop ? (Over ? 0.27f : 0.15f) : 0.07f), IGraphics::CORNER_ALL, 4);
+			Row.VSplitRight(19, &Row, &Action);
+			Row.VSplitRight(4, &Row, nullptr);
+			Row.VSplitRight(19, &Row, &Listen);
+			Action.Margin(1, &Action);
+			Listen.Margin(1, &Listen);
+			Row.VMargin(6, &Row);
+			if(Side == 0 && !Ui()->IsPopupOpen() && Row.Inside(Ui()->MousePos()) && Ui()->MouseButtonClicked(0))
+				s_Drag = Index;
+			if(Side == 0 && Ui()->DoButton_FontIcon(&s_aCopy[Index], FontIcon::CHEVRON_RIGHT, 0, &Action, BUTTONFLAG_LEFT))
+				s_aSources[Index] = s_Donor;
+			if(Side == 1 && !s_aSources[Index].empty() && Ui()->DoButton_FontIcon(&s_aReset[Index], FontIcon::ARROW_ROTATE_LEFT, 0, &Action, BUTTONFLAG_LEFT))
+				s_aSources[Index].clear();
+			if(Drop && Released && Over && !Ui()->IsPopupOpen())
+				s_aSources[Index] = s_Donor;
+			const std::string &Pack = Side == 1 && !s_aSources[Index].empty() ? s_aSources[Index] : *apPacks[Side];
+			if(Ui()->DoButton_FontIcon(&s_aPlay[Side][Index], FontIcon::PLAY, 0, &Listen, BUTTONFLAG_LEFT))
+				s_Status = GameClient()->m_Sounds.PreviewPackSound(AUDIO_EVENTS[Index], Pack.c_str()) ? "" : Localize("Sound unavailable");
+			SLabelProperties Props;
+			Props.m_MaxWidth = Row.w;
+			Props.m_EllipsisAtEnd = true;
+			if(Side == 1)
+			{
+				CUIRect Origin;
+				Row.HSplitBottom(Row.h * 0.43f, &Row, &Origin);
+				Ui()->DoLabel(&Origin, Pack.c_str(), std::min(10.0f, Origin.h), TEXTALIGN_ML, Props);
+			}
+			Ui()->DoLabel(&Row, apLabels[Index], std::min(13.0f, Row.h), TEXTALIGN_ML, Props);
+		}
+	}
+	if(!Ui()->MouseButton(0))
+		s_Drag = -1;
+	Ui()->DoLabel(&Status, s_Status.empty() ? Localize("Drag a sound to the right or click its arrow") : s_Status.c_str(), 11, TEXTALIGN_ML);
+	if(RefreshAfterExport)
+		s_Packs.clear();
+}
+
 void CMenus::RenderSettingsAssets(CUIRect MainView)
 {
 	CUIRect TabBar, CustomList, QuickSearch, DirectoryButton, ReloadButton;
@@ -391,12 +605,26 @@ void CMenus::RenderSettingsAssets(CUIRect MainView)
 	{
 		CUIRect Editor;
 		MainView.HSplitTop(22.0f, &Editor, &MainView);
-		Editor.VSplitRight(140.0f, nullptr, &Editor);
+		Editor.VSplitRight(s_CurCustomTab == ASSETS_TAB_AUDIO ? 190.0f : 140.0f, nullptr, &Editor);
 		static CButtonContainer s_Editor;
-		if(DoButton_Menu(&s_Editor, Localize("Assets editor"), 0, &Editor))
+		if(DoButton_Menu(&s_Editor, s_CurCustomTab == ASSETS_TAB_AUDIO ? Localize("Create sound pack") : Localize("Assets editor"), 0, &Editor))
 		{
-			AssetsEditorOpen();
-			return;
+			if(s_CurCustomTab == ASSETS_TAB_AUDIO)
+			{
+				s_AudioPackEditorOpen = true;
+				s_Base = *g_Config.m_SndPack ? g_Config.m_SndPack : "default";
+				s_Donor = s_Base;
+				for(auto &Source : s_aSources)
+					Source.clear();
+				s_Status.clear();
+				s_ExportName.Clear();
+				return;
+			}
+			else
+			{
+				AssetsEditorOpen();
+				return;
+			}
 		}
 		MainView.HSplitTop(5.0f, nullptr, &MainView);
 	}
@@ -447,12 +675,15 @@ void CMenus::RenderSettingsAssets(CUIRect MainView)
 	else
 		s_EditorImageTab = 0;
 
+
 	if(s_CurCustomTab == ASSETS_TAB_AUDIO)
 	{
-		static std::vector<std::string> s_Packs;
 		static CLineInputBuffered<64> s_Search;
 		static CListBox s_AudioList;
 		static CButtonContainer s_RefreshAudio, s_DirectoryAudio;
+		if(s_Packs.empty() || Input()->KeyPress(KEY_F5))
+			ScanAudioPacks(Storage());
+
 		MainView.HSplitTop(10, nullptr, &MainView);
 		CUIRect Footer, Search, Directory, Refresh;
 		MainView.HSplitBottom(24, &MainView, &Footer);
@@ -460,19 +691,10 @@ void CMenus::RenderSettingsAssets(CUIRect MainView)
 		Footer.VSplitRight(6, &Footer, nullptr);
 		Footer.VSplitRight(110, &Search, &Directory);
 		Search.VSplitRight(6, &Search, nullptr);
-		const bool RefreshPacks = DoButton_Menu(&s_RefreshAudio, Localize("Refresh"), 0, &Refresh);
-		if(s_Packs.empty() || RefreshPacks || Input()->KeyPress(KEY_F5))
+		if(DoButton_Menu(&s_RefreshAudio, Localize("Refresh"), 0, &Refresh))
 		{
-			s_Packs = {"default"};
-			const auto Scan = [](const char *pName, int IsDir, int, void *pData) {
-				auto &Packs = *static_cast<std::vector<std::string> *>(pData);
-				if(IsDir && pName[0] != '.' && std::find(Packs.begin(), Packs.end(), pName) == Packs.end())
-					Packs.emplace_back(pName);
-				return 0;
-			};
-			Storage()->ListDirectory(IStorage::TYPE_ALL, "assets/audio", Scan, &s_Packs);
-			Storage()->ListDirectory(IStorage::TYPE_ALL, "audio", Scan, &s_Packs);
-			std::sort(s_Packs.begin() + 1, s_Packs.end());
+			s_Packs.clear();
+			return;
 		}
 		Ui()->DoEditBox_Search(&s_Search, &Search, 12, !Ui()->IsPopupOpen());
 		if(DoButton_Menu(&s_DirectoryAudio, Localize("Audio directory"), 0, &Directory))
@@ -506,7 +728,12 @@ void CMenus::RenderSettingsAssets(CUIRect MainView)
 		}
 		const int NewSelected = s_AudioList.DoEnd();
 		if(NewSelected >= 0 && NewSelected < (int)Visible.size() && NewSelected != Selected)
+		{
 			str_copy(g_Config.m_SndPack, Visible[NewSelected]->c_str());
+			for(int Event : AUDIO_EVENTS)
+				CSounds::OverridePack(Event)[0] = 0;
+			CSounds::OverridePack(SOUND_TEE_CRY)[0] = 0;
+		}
 		return;
 	}
 

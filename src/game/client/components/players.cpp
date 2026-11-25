@@ -1290,6 +1290,7 @@ void CPlayers::OnRender()
 		RenderHookCollLine(ScreenRect, &pClientData->m_RenderPrev, &pClientData->m_RenderCur, RenderLastId);
 		RenderPlayer(ScreenRect, &pClientData->m_RenderPrev, &pClientData->m_RenderCur, &aRenderInfo[RenderLastId], RenderLastId);
 	}
+
 }
 
 void CPlayers::CreateNinjaTeeRenderInfo()
