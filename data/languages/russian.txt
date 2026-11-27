@@ -2827,3 +2827,39 @@ Sound pack: %s
 
 Audio directory
 == Папка аудиопаков
+
+Animated menu
+== Анимация меню
+
+Background quality
+== Качество фона
+
+Background brightness
+== Яркость фона
+
+Cursor parallax
+== Параллакс курсора
+
+Startup animation
+== Анимация запуска
+
+Interface animations
+== Анимации интерфейса
+
+Animation speed
+== Скорость анимации
+
+Ultra
+== Ультра
+
+About
+== О клиенте
+
+Check update
+== Проверить обновления
+
+Checking…
+== Проверка…
+
+Could not check for updates
+== Не удалось проверить обновления

@@ -299,3 +299,11 @@ MACRO_CONFIG_STR(AxSound4, ax_sound_player_jump, 64, "", CFGFLAG_CLIENT | CFGFLA
 MACRO_CONFIG_STR(AxSound5, ax_sound_tee_cry, 64, "", CFGFLAG_CLIENT | CFGFLAG_SAVE, "Override sound pack for TEE_CRY")
 MACRO_CONFIG_STR(AxSound6, ax_sound_player_spawn, 64, "", CFGFLAG_CLIENT | CFGFLAG_SAVE, "Override sound pack for PLAYER_SPAWN")
 MACRO_CONFIG_STR(AxSound7, ax_sound_player_die, 64, "", CFGFLAG_CLIENT | CFGFLAG_SAVE, "Override sound pack for PLAYER_DIE")
+
+MACRO_CONFIG_INT(AxMenuQuality, ax_menu_quality, 3, 0, 4, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Menu background quality")
+MACRO_CONFIG_INT(AxMenuParticles, ax_menu_particles, 100, 20, 150, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Menu particle count")
+MACRO_CONFIG_INT(AxMenuSpeed, ax_menu_speed, 100, 0, 200, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Menu animation speed")
+MACRO_CONFIG_INT(AxMenuBrightness, ax_menu_brightness, 70, 0, 100, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Menu particle brightness")
+MACRO_CONFIG_INT(AxMenuParallax, ax_menu_parallax, 35, 0, 100, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Menu cursor parallax")
+MACRO_CONFIG_INT(AxStartupAnimation, ax_startup_animation, 1, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Animate client startup")
+MACRO_CONFIG_INT(AxUiAnimations, ax_ui_animations, 1, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Animate menu controls")

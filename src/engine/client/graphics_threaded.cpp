@@ -1,3 +1,4 @@
+#include <array>
 /* (c) Magnus Auvinen. See licence.txt in the root of the distribution for more information. */
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 
@@ -1326,7 +1327,53 @@ void CGraphics_Threaded::DrawRect(float x, float y, float w, float h, ColorRGBA 
 	TextureClear();
 	QuadsBegin();
 	SetColor(Color);
-	DrawRectExt(x, y, w, h, Rounding, Corners);
+	if(w > 0 && h > 0 && Rounding > 0 && Corners && !(Corners & ~CORNER_ALL))
+	{
+		constexpr int Steps = 10;
+		constexpr int Count = 4 * (Steps + 1);
+		static const auto s_aNormals = [] {
+			std::array<vec2, Count> aNormals;
+			for(int Corner = 0; Corner < 4; ++Corner)
+				for(int Step = 0; Step <= Steps; ++Step)
+				{
+					const float Angle = (Corner + 2 + Step / static_cast<float>(Steps)) * pi / 2;
+					aNormals[Corner * (Steps + 1) + Step] = vec2(std::cos(Angle), std::sin(Angle));
+				}
+			return aNormals;
+		}();
+		const float Radius = std::min(Rounding, std::min(w, h) * 0.5f);
+		const vec2 Pixel = GetScreen().Size() / vec2(std::max(ScreenWidth(), 1), std::max(ScreenHeight(), 1));
+		const vec2 aCorners[] = {{x, y}, {x + w, y}, {x + w, y + h}, {x, y + h}};
+		const vec2 aInward[] = {{1, 1}, {-1, 1}, {-1, -1}, {1, -1}};
+		const int aFlags[] = {CORNER_TL, CORNER_TR, CORNER_BR, CORNER_BL};
+		std::array<vec2, Count> aPoints, aFringe;
+		for(int i = 0; i < Count; ++i)
+		{
+			const int Corner = i / (Steps + 1);
+			const float Round = Corners & aFlags[Corner] ? Radius : 0.0f;
+			aPoints[i] = aCorners[Corner] + (aInward[Corner] + s_aNormals[i]) * Round;
+			aFringe[i] = aPoints[i] + s_aNormals[i] * Pixel;
+		}
+		std::array<CFreeformItem, Count> aQuads;
+		for(int i = 0; i < Count; i += 2)
+		{
+			const vec2 A = aPoints[i], B = aPoints[i + 1], C = aPoints[(i + 2) % Count];
+			aQuads[i / 2] = CFreeformItem(x + w * 0.5f, y + h * 0.5f, A.x, A.y, C.x, C.y, B.x, B.y);
+		}
+		QuadsDrawFreeform(aQuads.data(), Count / 2);
+		SetColor4(Color, Color, Color.WithAlpha(0), Color.WithAlpha(0));
+		for(int i = 0; i < Count; ++i)
+		{
+			const int Next = (i + 1) % Count;
+			const vec2 A = aPoints[i], B = aPoints[Next], C = aFringe[i], D = aFringe[Next];
+			aQuads[i] = CFreeformItem(A.x, A.y, B.x, B.y, C.x, C.y, D.x, D.y);
+		}
+		QuadsDrawFreeform(aQuads.data(), Count);
+	}
+	else
+	{
+		DrawRectExt(x, y, w, h, Rounding, Corners);
+	}
 	QuadsEnd();
 }
 

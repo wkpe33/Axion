@@ -56,10 +56,11 @@ public:
 
 	std::shared_ptr<IHttpRequest> m_pTClientInfoTask = nullptr;
 	void FetchTClientInfo();
+	static bool s_UpdateCheckSucceeded;
 	void FinishTClientInfo();
 	void ResetTClientInfoTask();
 	bool NeedUpdate();
-	static constexpr const char *AXION_UPDATE_VERSION = "1.6.7";
+	static constexpr const char *AXION_UPDATE_VERSION = "1.6.8";
 
 	void RenderMiniVoteHud();
 	void RenderCenterLines();

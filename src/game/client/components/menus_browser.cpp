@@ -1,5 +1,6 @@
 /* (c) Magnus Auvinen. See licence.txt in the root of the distribution for more information. */
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
+#include <game/client/axion_ui.h>
 #include "menus.h"
 
 #include <engine/client/udp_port_test.h>
@@ -2185,7 +2186,7 @@ void CMenus::RenderServerbrowser(CUIRect MainView)
 	// clang-format on
 
 	CUIRect ServerList, StatusBox, ToolBox, TabBar;
-	MainView.Draw(ms_ColorTabbarActive, IGraphics::CORNER_B, 10.0f);
+	AxionUi::Surface(MainView, ms_ColorTabbarActive, IGraphics::CORNER_ALL, 8);
 	MainView.Margin(10.0f, &MainView);
 	MainView.VSplitRight(205.0f, &ServerList, &ToolBox);
 	ServerList.VSplitRight(5.0f, &ServerList, nullptr);

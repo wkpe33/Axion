@@ -23,7 +23,7 @@
 namespace
 {
 constexpr float MUSIC_PANEL_WIDTH = 88.0f;
-constexpr float MUSIC_PANEL_HEIGHT = 53.0f;
+constexpr float MUSIC_PANEL_HEIGHT = 33.0f;
 constexpr float MUSIC_PANEL_GAP = 6.5f;
 
 // Geometry antialiasing: one physical-pixel alpha fringe, independent of MSAA.
@@ -98,7 +98,6 @@ void CAxionOverlay::Edit()
 void CAxionOverlay::ResetInteraction()
 {
 	m_Editing = m_Interactive = m_Down = m_Press = m_VolumeDrag = false;
-	m_SeekDrag = false;
 	m_Drag = -1;
 	m_MusicRect = {};
 }
@@ -432,9 +431,6 @@ bool CAxionOverlay::OnInput(const IInput::CEvent &Event)
 		if(Event.m_Flags & IInput::FLAG_RELEASE)
 		{
 			const bool WasDown = m_Down;
-			if(m_SeekDrag && m_pMedia && m_Media.m_CanSeek)
-				m_pMedia->Seek(static_cast<int64_t>(m_SeekFraction * m_Media.m_DurationMs));
-			m_SeekDrag = false;
 			m_Down = m_VolumeDrag = false;
 			m_Drag = -1;
 			return Capture || WasDown;
@@ -532,7 +528,7 @@ void CAxionOverlay::RenderMusic(float W)
 	const float TimerBottom = Timer.y + Timer.h;
 	const float PanelY = TimerBottom + Gap;
 	const bool Hover = m_Interactive && (Timer.Inside(m_Mouse) || m_MusicRect.Inside(m_Mouse));
-	const float Target = !m_Editing && m_Interactive && (Hover || m_VolumeDrag || m_SeekDrag) ? 1.0f : 0.0f;
+	const float Target = !m_Editing && m_Interactive && (Hover || m_VolumeDrag) ? 1.0f : 0.0f;
 	if(m_Expansion != Target)
 		m_Expansion += (Target - m_Expansion) * AxionTransition(Client()->RenderFrameTime(), 180.0f);
 	if(!m_Interactive || m_Expansion < 0.005f)
@@ -575,20 +571,11 @@ void CAxionOverlay::RenderMusic(float W)
 	};
 	Pointer(TimerBottom, 1.0f);
 	Pointer(PanelY, -1.0f);
-	const CUIRect Header = {PanelX + 29, PanelY + 4, PanelWidth - 58, 9};
-	TextRender()->TextColor(White.WithAlpha(Alpha));
-	Ui()->DoLabel(&Header, "Axion", 8.0f, TEXTALIGN_MC);
-	TextRender()->TextColor(TextRender()->DefaultTextColor());
-	for(const CUIRect &Line : {CUIRect{PanelX + 6, PanelY + 9, 24, 0.45f},
-		    CUIRect{PanelX + PanelWidth - 30, PanelY + 9, 24, 0.45f},
-		    CUIRect{PanelX + 6, PanelY + 33, PanelWidth - 12, 0.45f}})
-		Line.Draw(White.WithAlpha(0.25f * Alpha), 0, 0);
-	const CUIRect Play = {PanelX + 37, PanelY + 16, 14, 14};
+	const CUIRect Play = {PanelX + 37, PanelY + 4, 14, 14};
 	const CUIRect Previous = {Play.x - 22, Play.y, 14, 14};
 	const CUIRect Next = {Play.x + 22, Play.y, 14, 14};
-	const CUIRect Speaker = {PanelX + 7, PanelY + 35, 12, 9};
+	const CUIRect Speaker = {PanelX + 7, PanelY + 21, 12, 9};
 	m_VolumeRect = {PanelX + 23, Speaker.y, PanelWidth - 33, 9};
-	const CUIRect Seek = {PanelX + 10, PanelY + 44, PanelWidth - 20, 6};
 
 	const auto Icon = [&](const CUIRect &Rect, const char *pIcon, bool Enabled) {
 		if(Rect.Inside(m_Mouse) && Enabled && m_Interactive)
@@ -605,12 +592,9 @@ void CAxionOverlay::RenderMusic(float W)
 	Icon(Next, FontIcon::FORWARD_STEP, m_Media.m_CanNext);
 	Icon(Speaker, m_Media.m_Volume == 0 ? "\uF6A9" : "\uF028", m_Media.m_Volume >= 0);
 
-	const bool CanSeek = m_Media.m_CanSeek && m_Media.m_DurationMs > 0;
 	const auto Fraction = [&](const CUIRect &Rect) { return std::clamp((m_Mouse.x - Rect.x) / Rect.w, 0.0f, 1.0f); };
 	if(!m_VolumeDrag)
 		m_DisplayVolume = m_Media.m_Volume;
-	if(!m_SeekDrag)
-		m_SeekFraction = m_Media.m_DurationMs > 0 ? m_Media.m_PositionMs / static_cast<float>(m_Media.m_DurationMs) : 0.0f;
 	if(m_Interactive && m_Press)
 	{
 		if(Previous.Inside(m_Mouse) && m_Media.m_CanPrevious)
@@ -627,8 +611,6 @@ void CAxionOverlay::RenderMusic(float W)
 		}
 		else if(m_VolumeRect.Inside(m_Mouse) && m_Media.m_Volume >= 0)
 			m_VolumeDrag = true;
-		else if(Seek.Inside(m_Mouse) && CanSeek)
-			m_SeekDrag = true;
 	}
 	if(m_VolumeDrag && m_Down)
 	{
@@ -637,8 +619,6 @@ void CAxionOverlay::RenderMusic(float W)
 			m_pMedia->Volume(Volume);
 		m_DisplayVolume = Volume;
 	}
-	if(m_SeekDrag && m_Down)
-		m_SeekFraction = Fraction(Seek);
 	const auto Slider = [&](const CUIRect &Rect, float Value, bool Enabled, float Thickness) {
 		Value = std::clamp(Value, 0.0f, 1.0f);
 		const float Y = Rect.y + Rect.h / 2;
@@ -653,7 +633,6 @@ void CAxionOverlay::RenderMusic(float W)
 		DrawSmoothPanel(Graphics(), Thumb, White.WithAlpha(Opacity), 1.35f);
 	};
 	Slider(m_VolumeRect, m_DisplayVolume, m_Media.m_Volume >= 0, 1.5f);
-	Slider(Seek, m_SeekFraction, CanSeek, 0.85f);
 }
 
 void CAxionOverlay::OnRender()
@@ -676,7 +655,6 @@ void CAxionOverlay::OnRender()
 	if(!Interactive)
 	{
 		m_Down = m_VolumeDrag = false;
-		m_SeekDrag = false;
 		m_Drag = -1;
 	}
 	const auto Screen = Graphics()->GetScreen();

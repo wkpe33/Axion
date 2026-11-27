@@ -1,6 +1,7 @@
 /* (c) Magnus Auvinen. See licence.txt in the root of the distribution for more information. */
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 
+#include <game/client/axion_ui.h>
 #include "console.h"
 
 #include <base/dbg.h>
@@ -1203,8 +1204,8 @@ void CGameConsole::OnRender()
 
 	const ColorRGBA ShadowColor = ColorRGBA(0.0f, 0.0f, 0.0f, 0.4f);
 	const ColorRGBA TransparentColor = ColorRGBA(0.0f, 0.0f, 0.0f, 0.0f);
-	const ColorRGBA aBackgroundColors[NUM_CONSOLETYPES] = {ColorRGBA(0.2f, 0.2f, 0.2f, 0.9f), ColorRGBA(0.4f, 0.2f, 0.2f, 0.9f)};
-	const ColorRGBA aBorderColors[NUM_CONSOLETYPES] = {ColorRGBA(0.1f, 0.1f, 0.1f, 0.9f), ColorRGBA(0.2f, 0.1f, 0.1f, 0.9f)};
+	const ColorRGBA aBackgroundColors[NUM_CONSOLETYPES] = {AxionUi::Background.WithAlpha(0.96f), AxionUi::Panel.WithAlpha(0.96f)};
+	const ColorRGBA aBorderColors[NUM_CONSOLETYPES] = {AxionUi::Border, AxionUi::Muted};
 
 	Ui()->MapScreen();
 

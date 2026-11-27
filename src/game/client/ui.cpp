@@ -1,3 +1,4 @@
+#include <game/client/axion_ui.h>
 #include <engine/shared/axion_cursor.h>
 /* (c) Magnus Auvinen. See licence.txt in the root of the distribution for more information. */
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
@@ -1040,7 +1041,7 @@ bool CUi::DoClearableEditBox(CLineInput *pLineInput, const CUIRect *pRect, float
 
 	bool ReturnValue = DoEditBox(pLineInput, &EditBox, FontSize, Corners & ~IGraphics::CORNER_R, vColorSplits);
 
-	ClearButton.Draw(ColorRGBA(1.0f, 1.0f, 1.0f, 0.33f * ButtonColorMul(pLineInput->GetClearButtonId())), Corners & ~IGraphics::CORNER_L, 3.0f);
+	AxionUi::Surface(ClearButton, HotItem() == pLineInput->GetClearButtonId() ? AxionUi::Hover : AxionUi::Button, Corners & ~IGraphics::CORNER_L, 3.0f);
 	TextRender()->SetRenderFlags(ETextRenderFlags::TEXT_RENDER_FLAG_ONLY_ADVANCE_WIDTH | ETextRenderFlags::TEXT_RENDER_FLAG_NO_X_BEARING | ETextRenderFlags::TEXT_RENDER_FLAG_NO_Y_BEARING | ETextRenderFlags::TEXT_RENDER_FLAG_NO_OVERSIZE);
 	DoLabel(&ClearButton, "×", ClearButton.h * CUi::ms_FontmodHeight * 0.8f, TEXTALIGN_MC);
 	TextRender()->SetRenderFlags(0);
@@ -1203,14 +1204,14 @@ void CUi::DrawButton_FontIcon(const char *pText, const CUIRect *pRect, ColorRGBA
 
 int CUi::DoButton_FontIcon(CButtonContainer *pButtonContainer, const char *pText, int Checked, const CUIRect *pRect, const unsigned Flags, int Corners, bool Enabled, const std::optional<ColorRGBA> ButtonColor)
 {
-	DrawButton_FontIcon(pText, pRect, ButtonColor.value_or(ColorRGBA(1.0f, 1.0f, 1.0f, (Checked ? 0.1f : 0.5f) * ButtonColorMul(pButtonContainer))), Corners, Enabled);
+	DrawButton_FontIcon(pText, pRect, ButtonColor.value_or(Checked || ActiveItem() == pButtonContainer ? AxionUi::Active : HotItem() == pButtonContainer ? AxionUi::Hover : AxionUi::Button), Corners, Enabled);
 	return DoButtonLogic(pButtonContainer, Checked, pRect, Flags);
 }
 
 int CUi::DoButton_PopupMenu(CButtonContainer *pButtonContainer, const char *pText, const CUIRect *pRect, float Size, int Align, float Padding, bool TransparentInactive, bool Enabled, const std::optional<ColorRGBA> ButtonColor)
 {
 	if(!TransparentInactive || CheckActiveItem(pButtonContainer) || HotItem() == pButtonContainer)
-		pRect->Draw(ButtonColor.value_or(Enabled ? ColorRGBA(1.0f, 1.0f, 1.0f, 0.5f * ButtonColorMul(pButtonContainer)) : ColorRGBA(0.0f, 0.0f, 0.0f, 0.4f)), IGraphics::CORNER_ALL, 3.0f);
+		pRect->Draw(ButtonColor.value_or(Enabled ? (HotItem() == pButtonContainer ? AxionUi::Hover : AxionUi::Button) : ColorRGBA(0.0f, 0.0f, 0.0f, 0.4f)), IGraphics::CORNER_ALL, 3.0f);
 
 	CUIRect Label;
 	pRect->Margin(Padding, &Label);
@@ -1415,7 +1416,7 @@ float CUi::DoScrollbarV(const void *pId, const CUIRect *pRect, float Current)
 	}
 
 	// render
-	Rail.Draw(ColorRGBA(1.0f, 1.0f, 1.0f, 0.25f), IGraphics::CORNER_ALL, Rail.w / 2.0f);
+	Rail.Draw(AxionUi::Border, IGraphics::CORNER_ALL, Rail.w / 2.0f);
 	Handle.Draw(ms_ScrollBarColorFunction.GetColor(CheckActiveItem(pId), HotItem() == pId), IGraphics::CORNER_ALL, Handle.w / 2.0f);
 
 	return ReturnValue;
@@ -1517,7 +1518,7 @@ float CUi::DoScrollbarH(const void *pId, const CUIRect *pRect, float Current, co
 	}
 	else
 	{
-		Rail.Draw(ColorRGBA(1.0f, 1.0f, 1.0f, 0.25f), IGraphics::CORNER_ALL, Rail.h / 2.0f);
+		Rail.Draw(AxionUi::Border, IGraphics::CORNER_ALL, Rail.h / 2.0f);
 		Handle.Draw(HandleColor, IGraphics::CORNER_ALL, Rail.h / 2.0f);
 	}
 

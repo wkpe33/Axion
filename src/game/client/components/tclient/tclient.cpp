@@ -596,10 +596,13 @@ void CTClient::ResetTClientInfoTask()
 	}
 }
 
+bool CTClient::s_UpdateCheckSucceeded = false;
+
 void CTClient::FetchTClientInfo()
 {
 	if(m_pTClientInfoTask && !m_pTClientInfoTask->Done())
 		return;
+	s_UpdateCheckSucceeded = false;
 	char aUrl[256];
 	str_copy(aUrl, TCLIENT_INFO_URL);
 	m_pTClientInfoTask = HttpGet(aUrl);
@@ -654,6 +657,7 @@ void CTClient::FinishTClientInfo()
 	{
 		char aNewVersionStr[64];
 		str_copy(aNewVersionStr, static_cast<const char *>(CurrentVersion) + 1);
+		s_UpdateCheckSucceeded = ToTCVersion(aNewVersionStr) != gs_InvalidTCVersion;
 		char aCurVersionStr[64];
 		str_copy(aCurVersionStr, AXION_UPDATE_VERSION);
 		if(ToTCVersion(aNewVersionStr) > ToTCVersion(aCurVersionStr))

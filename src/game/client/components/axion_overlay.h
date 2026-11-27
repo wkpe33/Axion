@@ -16,8 +16,7 @@ class CAxionOverlay : public CComponent
 	int m_Drag = -1;
 	bool m_Editing = false, m_Interactive = false;
 	bool m_Down = false, m_Press = false, m_VolumeDrag = false;
-	bool m_SeekDrag = false;
-	float m_PreMuteVolume = 0.5f, m_SeekFraction = 0;
+	float m_PreMuteVolume = 0.5f;
 	float m_Expansion = 0, m_DisplayVolume = -1;
 	float m_CanvasWidth = 500;
 	CUIRect m_MusicRect = {}, m_VolumeRect = {};

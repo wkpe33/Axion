@@ -296,8 +296,8 @@ struct SPopupMenuId
 struct SPopupMenuProperties
 {
 	int m_Corners = IGraphics::CORNER_ALL;
-	ColorRGBA m_BorderColor = ColorRGBA(0.5f, 0.5f, 0.5f, 0.75f);
-	ColorRGBA m_BackgroundColor = ColorRGBA(0.0f, 0.0f, 0.0f, 0.75f);
+	ColorRGBA m_BorderColor = ColorRGBA(0.188f, 0.188f, 0.188f, 0.95f);
+	ColorRGBA m_BackgroundColor = ColorRGBA(0.082f, 0.082f, 0.082f, 0.97f);
 };
 
 /**

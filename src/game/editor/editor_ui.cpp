@@ -1,3 +1,4 @@
+#include <game/client/axion_ui.h>
 #include <base/color.h>
 #include <base/math.h>
 
@@ -57,14 +58,9 @@ ColorRGBA CEditor::GetButtonColor(const void *pId, int Checked)
 		return ColorRGBA(0, 0, 1, 0.5f);
 
 	case 1: // selected
-		if(Ui()->HotItem() == pId)
-			return ColorRGBA(1, 0, 0, 0.75f);
-		return ColorRGBA(1, 0, 0, 0.5f);
-
-	default: // regular
-		if(Ui()->HotItem() == pId)
-			return ColorRGBA(1, 1, 1, 0.75f);
-		return ColorRGBA(1, 1, 1, 0.5f);
+		return AxionUi::Active;
+	default:
+		return Ui()->HotItem() == pId ? AxionUi::Hover : AxionUi::Button;
 	}
 }
 

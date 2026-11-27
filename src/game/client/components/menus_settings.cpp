@@ -1,5 +1,7 @@
 /* (c) Magnus Auvinen. See licence.txt in the root of the distribution for more information. */
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
+#include <engine/font_icons.h>
+#include <game/client/axion_ui.h>
 #include "menus.h"
 
 #include <base/dbg.h>
@@ -64,7 +66,7 @@ void CMenus::RenderSettingsAxion(CUIRect View)
 		Column.HSplitTop(Height, &Box, &Column);
 		Column.HSplitTop(8.0f, nullptr, &Column);
 		s_Scroll.AddRect(Box);
-		Box.Draw(ColorRGBA(0.0f, 0.0f, 0.0f, 0.25f), IGraphics::CORNER_ALL, 6.0f);
+		AxionUi::Surface(Box, AxionUi::Panel.WithAlpha(0.94f));
 		Box.Margin(8.0f, &Box);
 		Box.HSplitTop(22.0f, &Row, &Box);
 		Ui()->DoLabel(&Row, pTitle, 15.0f, TEXTALIGN_ML);
@@ -253,6 +255,42 @@ void CMenus::RenderSettingsAxion(CUIRect View)
 		Check(Panel, Localize("Use vote binds for team invitations"), g_Config.m_AxInvitationVoteBinds);
 		Panel = BeginPanel(Right, 66.0f, "HUD");
 		Check(Panel, Localize("Show spectator names"), g_Config.m_AxSpectatorNames);
+		Panel = BeginPanel(Left, 140.0f, Localize("About"));
+		const char *apLabels[] = {Localize("News"), Localize("Website"), Localize("Learn"), Localize("Discord"), Localize("Tutorial")};
+		const char *apLinks[] = {nullptr, "https://ddnet.org/", "https://wiki.ddnet.org/", "https://ddnet.org/discord", nullptr};
+		static CButtonContainer s_aAboutButtons[std::size(apLabels)];
+		for(size_t i = 0; i < std::size(apLabels); ++i)
+		{
+			Panel.HSplitTop(19, &Row, &Panel);
+			Panel.HSplitTop(2, nullptr, &Panel);
+			if(!DoButton_Menu(&s_aAboutButtons[i], apLabels[i], 0, &Row))
+				continue;
+			if(i == 0 && Client()->State() == IClient::STATE_OFFLINE)
+				SetMenuPage(PAGE_NEWS);
+			else if(i == 4)
+				JoinTutorial();
+			else if(apLinks[i])
+				Client()->ViewLink(apLinks[i]);
+		}
+		Panel = BeginPanel(Right, 252.0f, Localize("Animated menu"));
+		const char *apQuality[] = {Localize("Off"), Localize("Low"), Localize("Medium"), Localize("High"), Localize("Ultra")};
+		char aQuality[96];
+		str_format(aQuality, sizeof(aQuality), "%s: %s", Localize("Background quality"), apQuality[g_Config.m_AxMenuQuality]);
+		static CButtonContainer s_Quality;
+		Panel.HSplitTop(23, &Row, &Panel);
+		if(DoButton_Menu(&s_Quality, aQuality, 0, &Row))
+			g_Config.m_AxMenuQuality = (g_Config.m_AxMenuQuality + 1) % std::size(apQuality);
+		Panel.HSplitTop(6, nullptr, &Panel);
+		const auto Slider = [&](int &Value, const char *pLabel, int Min, int Max) {
+			Panel.HSplitTop(23, &Row, &Panel);
+			Ui()->DoScrollbarOption(&Value, &Value, &Row, pLabel, Min, Max, &CUi::ms_LinearScrollbarScale, 0, "%");
+		};
+		Slider(g_Config.m_AxMenuParticles, Localize("Particles"), 20, 150);
+		Slider(g_Config.m_AxMenuSpeed, Localize("Animation speed"), 0, 200);
+		Slider(g_Config.m_AxMenuBrightness, Localize("Background brightness"), 0, 100);
+		Slider(g_Config.m_AxMenuParallax, Localize("Cursor parallax"), 0, 100);
+		Check(Panel, Localize("Startup animation"), g_Config.m_AxStartupAnimation);
+		Check(Panel, Localize("Interface animations"), g_Config.m_AxUiAnimations);
 	}
 
 	s_Scroll.End();
@@ -281,9 +319,10 @@ void CMenus::RenderSettings(CUIRect MainView)
 	}
 	// render background
 	CUIRect Button, TabBar, RestartBar;
-	MainView.VSplitRight(120.0f, &MainView, &TabBar);
-	const ColorRGBA PanelColor = ms_ColorTabbarActive;
-	MainView.Draw(PanelColor, IGraphics::CORNER_B, 10.0f);
+	MainView.VSplitRight(std::clamp(MainView.w * 0.16f, 100.0f, 145.0f), &MainView, &TabBar);
+	TabBar.VSplitLeft(10.0f, nullptr, &TabBar);
+	const ColorRGBA PanelColor = AxionUi::Background.WithAlpha(0.52f);
+	AxionUi::Surface(MainView, PanelColor, IGraphics::CORNER_ALL, 10);
 	MainView.Margin(20.0f, &MainView);
 
 	const bool NeedRestart = m_NeedRestartGraphics || m_NeedRestartSound || m_NeedRestartUpdate;
@@ -293,8 +332,8 @@ void CMenus::RenderSettings(CUIRect MainView)
 		MainView.HSplitBottom(10.0f, &MainView, nullptr);
 	}
 
-	TabBar.HSplitTop(50.0f, &Button, &TabBar);
-	Button.Draw(ms_ColorTabbarActive, IGraphics::CORNER_BR, 10.0f);
+	TabBar.HSplitTop(9.0f, nullptr, &TabBar);
+	const float CategoryHeight = std::min(28.0f, TabBar.h / SETTINGS_LENGTH);
 
 	const char *apTabs[SETTINGS_LENGTH] = {
 		Localize("Language"),
@@ -312,6 +351,11 @@ void CMenus::RenderSettings(CUIRect MainView)
 		Localize("Configs"), // TClient
 		"Axion"};
 	static CButtonContainer s_aTabButtons[SETTINGS_LENGTH];
+	const char *apIcons[SETTINGS_LENGTH] = {
+		FontIcon::EARTH_AMERICAS, FontIcon::GEAR, FontIcon::USER, FontIcon::USER,
+		FontIcon::STAR, FontIcon::KEYBOARD, FontIcon::GEAR, FontIcon::PLAY,
+		FontIcon::NETWORK_WIRED, FontIcon::LAYER_GROUP, FontIcon::TERMINAL,
+		FontIcon::ICON_USERS, FontIcon::FILE, FontIcon::LAYER_GROUP};
 
 	for(int Row = 0; Row < SETTINGS_LENGTH; Row++)
 	{
@@ -320,10 +364,14 @@ void CMenus::RenderSettings(CUIRect MainView)
 			i = SETTINGS_AXION;
 		else if(Row > SETTINGS_TCLIENT + 1)
 			i = Row - 1;
-		TabBar.HSplitTop(10.0f, nullptr, &TabBar);
-		TabBar.HSplitTop(26.0f, &Button, &TabBar);
-		if(DoButton_MenuTab(&s_aTabButtons[i], apTabs[i], g_Config.m_UiSettingsPage == i, &Button, IGraphics::CORNER_R, i == SETTINGS_AXION ? nullptr : &m_aAnimatorsSettingsTab[i]))
+		TabBar.HSplitTop(CategoryHeight, &Button, &TabBar);
+		Button.HMargin(2.0f, &Button);
+		if(DoButton_MenuTab(&s_aTabButtons[i], apTabs[i], g_Config.m_UiSettingsPage == i, &Button, IGraphics::CORNER_ALL, i == SETTINGS_AXION ? nullptr : &m_aAnimatorsSettingsTab[i]))
 			g_Config.m_UiSettingsPage = i;
+		CUIRect Icon;
+		Button.VSplitLeft(20, &Icon, nullptr);
+		Icon.Margin(3, &Icon);
+		Ui()->DrawButton_FontIcon(apIcons[i], &Icon, AxionUi::Gray(0, 0));
 	}
 
 	if(g_Config.m_UiSettingsPage == SETTINGS_LANGUAGE)

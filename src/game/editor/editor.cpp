@@ -1,6 +1,7 @@
 /* (c) Magnus Auvinen. See licence.txt in the root of the distribution for more information. */
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 
+#include <game/client/axion_ui.h>
 #include "editor.h"
 
 #include "auto_map.h"
@@ -3769,6 +3770,13 @@ void CEditor::Render()
 	//	a little hack for now
 	if(m_Mode == MODE_LAYERS)
 		MapView()->Render(View);
+	if(m_GuiActive)
+	{
+		AxionUi::Surface(MenuBar, AxionUi::Panel, IGraphics::CORNER_NONE);
+		AxionUi::Surface(ToolBar, AxionUi::Panel, IGraphics::CORNER_NONE);
+		AxionUi::Surface(ToolBox, AxionUi::Panel, IGraphics::CORNER_NONE);
+		AxionUi::Surface(StatusBar, AxionUi::Panel, IGraphics::CORNER_NONE);
+	}
 
 	if(m_Dialog == DIALOG_NONE && CLineInput::GetActiveInput() == nullptr)
 	{
