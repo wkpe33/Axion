@@ -1,3 +1,4 @@
+#include <base/time.h>
 #include "tclient.h"
 
 #include "data_version.h"
@@ -604,7 +605,7 @@ void CTClient::FetchTClientInfo()
 		return;
 	s_UpdateCheckSucceeded = false;
 	char aUrl[256];
-	str_copy(aUrl, TCLIENT_INFO_URL);
+	str_format(aUrl, sizeof(aUrl), "%s?check=%lld", TCLIENT_INFO_URL, static_cast<long long>(time_get()));
 	m_pTClientInfoTask = HttpGet(aUrl);
 	m_pTClientInfoTask->Timeout(CTimeout{10000, 0, 500, 10});
 	m_pTClientInfoTask->IpResolve(IPRESOLVE::V4);
@@ -657,10 +658,11 @@ void CTClient::FinishTClientInfo()
 	{
 		char aNewVersionStr[64];
 		str_copy(aNewVersionStr, static_cast<const char *>(CurrentVersion) + 1);
-		s_UpdateCheckSucceeded = ToTCVersion(aNewVersionStr) != gs_InvalidTCVersion;
+		const TVersion Latest = ToTCVersion(aNewVersionStr);
+		s_UpdateCheckSucceeded = Latest != gs_InvalidTCVersion;
 		char aCurVersionStr[64];
 		str_copy(aCurVersionStr, AXION_UPDATE_VERSION);
-		if(ToTCVersion(aNewVersionStr) > ToTCVersion(aCurVersionStr))
+		if(s_UpdateCheckSucceeded && Latest > ToTCVersion(aCurVersionStr))
 		{
 			str_copy(m_aVersionStr, CurrentVersion);
 		}

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.IO.Compression;
 using System.Diagnostics;
@@ -10,41 +10,215 @@ using System.Web.Script.Serialization;
 using System.Collections.Generic;
 using System.Windows.Forms;
 using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.Reflection;
 using System.Threading;
 
 internal static class AxionUpdater
 {
     private const string AssetName = "Axion-windows-x64.zip";
     private static Form window;
-    private static Label status;
-    private static Label detail;
-    private static ProgressBar progress;
+    private static string stage = "Preparing update…", description = "";
+    private static int progress = -1;
+
+    private sealed class UpdateWindow : Form
+    {
+        private readonly Image logo = Image.FromStream(Assembly.GetExecutingAssembly().GetManifestResourceStream("AxionLogo"));
+        private readonly System.Windows.Forms.Timer frames = new System.Windows.Forms.Timer { Interval = 16 };
+        private float displayed;
+        private readonly Stopwatch clock = Stopwatch.StartNew();
+        private bool hoverClose;
+
+        private static GraphicsPath Round(RectangleF rect, float radius)
+        {
+            var path = new GraphicsPath();
+            float d = radius * 2;
+            path.AddArc(rect.Left, rect.Top, d, d, 180, 90);
+            path.AddArc(rect.Right - d, rect.Top, d, d, 270, 90);
+            path.AddArc(rect.Right - d, rect.Bottom - d, d, d, 0, 90);
+            path.AddArc(rect.Left, rect.Bottom - d, d, d, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+
+        public UpdateWindow()
+        {
+            Text = "Axion Updater";
+            Font = new Font("Segoe UI", 10);
+            ClientSize = new Size(680, 240);
+            FormBorderStyle = FormBorderStyle.None;
+            StartPosition = FormStartPosition.CenterScreen;
+            DoubleBuffered = true;
+            using (var outline = Round(new RectangleF(0, 0, Width, Height), 20))
+                Region = new Region(outline);
+            frames.Tick += (_, __) => { displayed += ((progress < 0 ? 0 : progress / 100f) - displayed) * 0.19f; Invalidate(); };
+            frames.Start();
+        }
+
+        protected override void OnPaint(PaintEventArgs args)
+        {
+            var g = args.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            using (var face = new LinearGradientBrush(ClientRectangle, Color.FromArgb(30, 30, 30), Color.FromArgb(14, 14, 14), 70f))
+                g.FillRectangle(face, ClientRectangle);
+            using (var outline = Round(new RectangleF(1, 1, Width - 2, Height - 2), 19))
+            using (var border = new Pen(Color.FromArgb(96, 96, 96)))
+            {
+                g.DrawPath(border, outline);
+                g.DrawLine(border, 1, 38, Width - 2, 38);
+            }
+            TextRenderer.DrawText(g, Text, Font, new Point(20, 9), Color.Gainsboro);
+            Color cross = !canClose ? Color.Gray : hoverClose ? Color.White : Color.Gainsboro;
+            using (var pen = new Pen(cross, 1.6f))
+            {
+                g.DrawLine(pen, Width - 34, 13, Width - 22, 25);
+                g.DrawLine(pen, Width - 22, 13, Width - 34, 25);
+            }
+            g.DrawImage(logo, new Rectangle(210, 59, 260, 87));
+            var track = new RectangleF(68, 169, Width - 136, 16);
+            using (var shape = Round(track, 8))
+            using (var border = new Pen(Color.Gray))
+                g.DrawPath(border, shape);
+            float inner = track.Width - 6;
+            float fill = progress < 0 ? inner * 0.21f : inner * displayed;
+            float offset = progress < 0 ? (inner - fill) * (0.5f - 0.5f * (float)Math.Cos(clock.Elapsed.TotalSeconds * 3)) : 0;
+            if (fill >= 2)
+                using (var shape = Round(new RectangleF(track.X + 3 + offset, track.Y + 3, fill, 10), Math.Min(5, fill / 2)))
+                    g.FillPath(Brushes.WhiteSmoke, shape);
+            var flags = TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine;
+            TextRenderer.DrawText(g, stage, Font, new Rectangle(50, 193, Width - 100, 21), Color.Gainsboro, flags);
+            TextRenderer.DrawText(g, description, Font, new Rectangle(50, 213, Width - 100, 19), Color.Gray, flags);
+        }
+
+        protected override void OnMouseMove(MouseEventArgs args)
+        {
+            hoverClose = args.Y < 38 && args.X > Width - 54;
+            base.OnMouseMove(args);
+        }
+
+        protected override void OnMouseDown(MouseEventArgs args)
+        {
+            if (args.Button == MouseButtons.Left && args.Y < 38)
+            {
+                if (args.X > Width - 54)
+                {
+                    if (canClose) Close();
+                }
+                else
+                {
+                    ReleaseCapture();
+                    SendMessage(Handle, 0xA1, new IntPtr(2), IntPtr.Zero);
+                }
+            }
+            base.OnMouseDown(args);
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool ReleaseCapture();
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hwnd, int message, IntPtr wparam, IntPtr lparam);
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) { frames.Dispose(); logo.Dispose(); }
+            base.Dispose(disposing);
+        }
+    }
     private static bool canClose;
+
+    private static readonly string[] ObsoleteFiles =
+    {
+        "CHAT_SELECTION.md", "LATEST_UPDATE.md", "BESTCLIENT_LICENSE.md", "BESTCLIENT-LICENSE.txt"
+    };
+
+    private static bool IsUpdateFolder(string path)
+    {
+        const string prefix = ".axion-update-";
+        string name = Path.GetFileName(path);
+        Guid id;
+        return name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
+            Guid.TryParseExact(name.Substring(prefix.Length), "N", out id);
+    }
+
+    private static void RemoveUpdateDirectory(string path)
+    {
+        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+        {
+            Directory.Delete(path);
+            return;
+        }
+        foreach (string child in Directory.EnumerateDirectories(path))
+            RemoveUpdateDirectory(child);
+        foreach (string file in Directory.EnumerateFiles(path))
+            File.Delete(file);
+        Directory.Delete(path);
+    }
+
+    private static void Cleanup(string directory, int installerId)
+    {
+        try
+        {
+            using (var installer = Process.GetProcessById(installerId))
+                if (!installer.WaitForExit(30000))
+                    return;
+        }
+        catch (ArgumentException) { }
+
+        foreach (string folder in Directory.EnumerateDirectories(directory, ".axion-update-*", SearchOption.TopDirectoryOnly))
+        {
+            if (!IsUpdateFolder(folder))
+                continue;
+            for (int attempt = 0; attempt < 6; ++attempt)
+            {
+                try
+                {
+                    if (Directory.Exists(folder))
+                        RemoveUpdateDirectory(folder);
+                    break;
+                }
+                catch (IOException) { Thread.Sleep(350); }
+                catch (UnauthorizedAccessException) { Thread.Sleep(350); }
+            }
+        }
+        foreach (string name in ObsoleteFiles)
+        {
+            // Preserve the separate notice when updating from an archive with the original license.
+            if (name == "BESTCLIENT-LICENSE.txt")
+            {
+                string license = Path.Combine(directory, "license.txt");
+                if (!File.Exists(license) || !File.ReadAllText(license).Contains("Copyright (c) 2026 BestProject"))
+                    continue;
+            }
+            try { File.Delete(Path.Combine(directory, name)); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
 
     [STAThread]
     private static void Main(string[] args)
     {
+        int installerId;
+        if (args.Length == 2 && args[0] == "cleanup" && int.TryParse(args[1], out installerId) && installerId > 0)
+        {
+            using (var singleton = new Mutex(false, @"Local\AxionUpdaterInstall"))
+            {
+                if (!singleton.WaitOne(30000))
+                    return;
+                try { Cleanup(AppDomain.CurrentDomain.BaseDirectory, installerId); }
+                finally { singleton.ReleaseMutex(); }
+            }
+            return;
+        }
         bool created;
         using (var singleton = new Mutex(true, args.Length == 3 && args[0] == "install" ? @"Local\AxionUpdaterInstall" : @"Local\AxionUpdater", out created))
         {
             if (!created)
                 return;
             Application.EnableVisualStyles();
-            window = new Form
-            {
-                Text = "Axion Updater",
-                ClientSize = new Size(500, 230),
-                BackColor = Color.FromArgb(20, 25, 34),
-                ForeColor = Color.White,
-                FormBorderStyle = FormBorderStyle.FixedDialog,
-                MaximizeBox = false,
-                StartPosition = FormStartPosition.CenterScreen
-            };
-            var title = new Label { Text = "AXION", Font = new Font("Segoe UI", 22, FontStyle.Bold), ForeColor = Color.FromArgb(125, 192, 255), Location = new Point(28, 22), Size = new Size(440, 44) };
-            status = new Label { Text = "Preparing update…", Font = new Font("Segoe UI", 12, FontStyle.Bold), Location = new Point(30, 84), Size = new Size(440, 28) };
-            detail = new Label { Text = "Checking release", Font = new Font("Segoe UI", 9), ForeColor = Color.FromArgb(165, 179, 195), Location = new Point(30, 119), Size = new Size(440, 25) };
-            progress = new ProgressBar { Location = new Point(30, 160), Size = new Size(440, 16), Style = ProgressBarStyle.Marquee, MarqueeAnimationSpeed = 25 };
-            window.Controls.AddRange(new Control[] { title, status, detail, progress });
+            window = new UpdateWindow();
             window.FormClosing += (sender, eventArgs) => { if (!canClose) eventArgs.Cancel = true; };
             window.Shown += (sender, eventArgs) =>
             {
@@ -61,11 +235,9 @@ internal static class AxionUpdater
             return;
         window.BeginInvoke((Action)(() =>
         {
-            status.Text = step;
-            detail.Text = information;
-            progress.Style = percent < 0 ? ProgressBarStyle.Marquee : ProgressBarStyle.Continuous;
-            if (percent >= 0)
-                progress.Value = Math.Max(0, Math.Min(100, percent));
+            stage = step;
+            description = information;
+            progress = percent < 0 ? -1 : Math.Min(100, percent);
         }));
     }
 
@@ -92,7 +264,7 @@ internal static class AxionUpdater
             {
                 Report("Checking for updates", "Reading the latest Axion release…");
                 http.Headers[HttpRequestHeader.UserAgent] = "AxionUpdater";
-                string metadata = http.DownloadString("https://api.github.com/repos/" + repository + "/releases/latest");
+                string metadata = http.DownloadString("https://api.github.com/repos/" + repository + "/releases/latest?check=" + DateTime.UtcNow.Ticks);
                 var release = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(metadata);
                 string tag = release["tag_name"] as string;
                 Version latest;
@@ -121,10 +293,9 @@ internal static class AxionUpdater
             if (window != null && window.IsHandleCreated)
                 window.BeginInvoke((Action)(() =>
                 {
-                    status.Text = "Update failed";
-                    detail.Text = error.Message;
-                    progress.Style = ProgressBarStyle.Continuous;
-                    progress.Value = 0;
+                    stage = "Update failed";
+                    description = error.Message;
+                    progress = 0;
                     canClose = true;
                     MessageBox.Show(window, error.Message, "Axion Updater", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }));
@@ -185,7 +356,7 @@ internal static class AxionUpdater
                 throw new InvalidOperationException("The release does not contain a complete Axion installation.");
 
             string worker = Path.Combine(updates, "AxionUpdater.exe");
-            File.Copy(Path.Combine(directory, "AxionUpdater.exe"), worker);
+            File.Copy(Path.Combine(package, "AxionUpdater.exe"), worker);
             using (Process process = Process.Start(worker, "install " + clientId + " " + Process.GetCurrentProcess().Id))
                 handedOff = process != null;
             if (!handedOff)
@@ -203,7 +374,7 @@ internal static class AxionUpdater
     private static void Install(string workerDirectory, int clientId, int bootstrapId)
     {
         string work = Path.GetFullPath(workerDirectory.TrimEnd(Path.DirectorySeparatorChar));
-        if (!Path.GetFileName(work).StartsWith(".axion-update-", StringComparison.Ordinal))
+        if (!IsUpdateFolder(work))
             throw new InvalidOperationException("Invalid update working directory.");
         string directory = Directory.GetParent(work).FullName;
         string executable = Path.Combine(directory, "DDNet.exe");
@@ -238,7 +409,7 @@ internal static class AxionUpdater
                 if (!relative.StartsWith("data" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) &&
                     (relative.IndexOf(Path.DirectorySeparatorChar) >= 0 ||
                      !(relative.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ||
-                       relative == "DDNet.exe" || relative == "AxionUpdater.exe")))
+                       relative == "DDNet.exe" || relative == "AxionUpdater.exe" || relative == "license.txt")))
                     continue;
 
                 string destination = Path.Combine(directory, relative);
@@ -269,8 +440,17 @@ internal static class AxionUpdater
             throw;
         }
 
-        foreach (string folder in new[] { "staging", "backup" })
-            Directory.Delete(Path.Combine(work, folder), true);
-        File.Delete(Path.Combine(work, AssetName));
+        // This worker runs inside the directory being cleaned. Run cleanup from the installed updater.
+        try
+        {
+            using (Process cleanup = Process.Start(Path.Combine(directory, "AxionUpdater.exe"),
+                "cleanup " + Process.GetCurrentProcess().Id))
+            {
+                if (cleanup != null)
+                    return;
+            }
+        }
+        catch (System.ComponentModel.Win32Exception) { }
+        // The installed client is already running. The next successful update can retry cleanup.
     }
 }
