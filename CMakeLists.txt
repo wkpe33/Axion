@@ -2781,6 +2781,7 @@ if(CLIENT)
     # tidy-alphabetical-start
     animstate.cpp
     animstate.h
+    axion_glyphs.h
     axion_ui.h
     component.cpp
     component.h

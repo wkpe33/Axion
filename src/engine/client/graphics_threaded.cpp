@@ -1327,7 +1327,7 @@ void CGraphics_Threaded::DrawRect(float x, float y, float w, float h, ColorRGBA 
 	TextureClear();
 	QuadsBegin();
 	SetColor(Color);
-	if(w > 0 && h > 0 && Rounding > 0 && Corners && !(Corners & ~CORNER_ALL))
+	if(g_Config.m_AxRedesignedMenu && w > 0 && h > 0 && Rounding > 0 && Corners && !(Corners & ~CORNER_ALL))
 	{
 		constexpr int Steps = 10;
 		constexpr int Count = 4 * (Steps + 1);

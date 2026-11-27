@@ -5,6 +5,13 @@
 
 #include "axion_theme.h"
 
+#include <base/net.h>
+#include <engine/http.h>
+#include <engine/external/json-parser/json.h>
+#include <engine/storage.h>
+
+#include <unordered_map>
+
 #include <base/dbg.h>
 #include <base/time.h>
 
@@ -28,6 +35,140 @@
 
 // Horizontal spacing of the scoreboard contents, both to its edges and between columns
 static constexpr float MARGIN = 10.0f;
+
+namespace
+{
+enum class EPlayerClient
+{
+	UNKNOWN,
+	BEST_CLIENT,
+	FAKE_BEST_CLIENT,
+	NOVA,
+};
+
+struct CClientPresence
+{
+	const char *m_pUrl;
+	EPlayerClient m_Type;
+	std::shared_ptr<IHttpRequest> m_pRequest;
+	std::unordered_map<std::string, EPlayerClient> m_Players;
+};
+
+CClientPresence s_aPresence[] = {
+	{"https://150.241.70.188:8779/users.json", EPlayerClient::BEST_CLIENT},
+	{"https://novaclient.137-131-212-78.sslip.io/users.json", EPlayerClient::NOVA},
+};
+NETADDR s_PresenceServer{};
+int64_t s_NextPresenceRequest = 0;
+IGraphics::CTextureHandle s_aClientIcons[3];
+
+const char *JsonString(const json_value &Value)
+{
+	return Value.type == json_string ? Value.u.string.ptr : nullptr;
+}
+
+void ReadPresencePlayers(CClientPresence &Source, const json_value &Players)
+{
+	const auto Add = [&](const char *pName, const json_value &Player) {
+		if(!pName || !*pName || str_length(pName) >= MAX_NAME_LENGTH)
+			return;
+		const auto &Fake = Player["fake"];
+		const auto Type = Source.m_Type == EPlayerClient::BEST_CLIENT &&
+			Fake.type == json_boolean && Fake.u.boolean ? EPlayerClient::FAKE_BEST_CLIENT : Source.m_Type;
+		const auto Result = Source.m_Players.emplace(pName, Type);
+		if(Type == EPlayerClient::FAKE_BEST_CLIENT)
+			Result.first->second = Type;
+	};
+	if(Players.type == json_array)
+	{
+		for(unsigned i = 0; i < Players.u.array.length; ++i)
+		{
+			const auto &Player = *Players.u.array.values[i];
+			Add(Player.type == json_string ? JsonString(Player) : JsonString(Player["name"]), Player);
+		}
+	}
+	else if(Players.type == json_object)
+	{
+		if(const char *pName = JsonString(Players["name"]))
+			Add(pName, Players);
+		else
+			for(unsigned i = 0; i < Players.u.object.length; ++i)
+			{
+				const auto &Entry = Players.u.object.values[i];
+				const char *pName = JsonString(*Entry.value);
+				if(Entry.value->type == json_object || Entry.value->type == json_string)
+					Add(pName ? pName : Entry.name, *Entry.value);
+			}
+	}
+}
+
+void UpdateScoreboardPresence(IHttp *pHttp, NETADDR Server)
+{
+	Server.type &= ~NETTYPE_TW7;
+	if(net_addr_comp(&Server, &s_PresenceServer) != 0)
+	{
+		for(auto &Source : s_aPresence)
+		{
+			if(Source.m_pRequest)
+				Source.m_pRequest->Abort();
+			Source.m_pRequest.reset();
+			Source.m_Players.clear();
+		}
+		s_PresenceServer = Server;
+		s_NextPresenceRequest = 0;
+	}
+	const auto Matches = [&](const char *pAddress) {
+		NETADDR Address{};
+		return pAddress && net_addr_from_str(&Address, pAddress) == 0 && net_addr_comp(&Address, &Server) == 0;
+	};
+	const auto Now = time_get();
+	const bool Refresh = Now >= s_NextPresenceRequest;
+	for(auto &Source : s_aPresence)
+	{
+		if(Source.m_pRequest && Source.m_pRequest->Done())
+		{
+			Source.m_Players.clear();
+			if(Source.m_pRequest->State() == EHttpState::DONE)
+			{
+				if(json_value *pJson = Source.m_pRequest->ResultJson())
+				{
+					if(pJson->type == json_array)
+					{
+						for(unsigned i = 0; i < pJson->u.array.length; ++i)
+						{
+							const auto &Entry = *pJson->u.array.values[i];
+							const char *pAddress = JsonString(Entry["server_address"]);
+							if(!pAddress) pAddress = JsonString(Entry["address"]);
+							if(!pAddress) pAddress = JsonString(Entry["server"]);
+							if(Matches(pAddress))
+								ReadPresencePlayers(Source, Entry["players"].type == json_none ? Entry : Entry["players"]);
+						}
+					}
+					else if(pJson->type == json_object)
+						for(unsigned i = 0; i < pJson->u.object.length; ++i)
+						{
+							const auto &Entry = pJson->u.object.values[i];
+							if(Matches(Entry.name))
+								ReadPresencePlayers(Source, *Entry.value);
+						}
+					json_value_free(pJson);
+				}
+			}
+			Source.m_pRequest.reset();
+		}
+		if(Refresh && !Source.m_pRequest)
+		{
+			Source.m_pRequest = HttpGet(Source.m_pUrl);
+			Source.m_pRequest->Timeout(CTimeout{5000, 10000, 100, 5});
+			Source.m_pRequest->MaxResponseSize(1024 * 1024);
+			Source.m_pRequest->LogProgress(HTTPLOG::FAILURE);
+			pHttp->Run(Source.m_pRequest);
+		}
+	}
+	if(Refresh)
+		s_NextPresenceRequest = Now + 20 * time_freq();
+}
+}
 
 CScoreboard::CScoreboard()
 {
@@ -189,6 +330,11 @@ void CScoreboard::ResetTexts()
 
 void CScoreboard::OnShutdown()
 {
+	for(auto &Source : s_aPresence)
+		if(Source.m_pRequest)
+			Source.m_pRequest->Abort();
+	for(auto &Icon : s_aClientIcons)
+		Graphics()->UnloadTexture(&Icon);
 	ResetTexts();
 }
 
@@ -720,7 +866,13 @@ void CScoreboard::RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart,
 				}
 				if(NextDDTeam != DDTeam)
 					TeamRectCorners |= IGraphics::CORNER_B;
-				RowAndSpacing.Draw(Color, TeamRectCorners, RoundRadius);
+				// The team fill tiles adjacent rows, so it must stay inside each row.
+				Graphics()->TextureClear();
+				Graphics()->QuadsBegin();
+				Graphics()->SetColor(Color);
+				Graphics()->DrawRectExt(RowAndSpacing.x, RowAndSpacing.y, RowAndSpacing.w, RowAndSpacing.h, RoundRadius, TeamRectCorners);
+				Graphics()->QuadsEnd();
+				Graphics()->SetColor(1, 1, 1, 1);
 
 				CurrentDDTeamSize++;
 
@@ -894,6 +1046,43 @@ void CScoreboard::RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart,
 				}
 
 				float NameTextOffset = NameOffset;
+				EPlayerClient ClientBadge = EPlayerClient::UNKNOWN;
+				if(Client()->State() == IClient::STATE_ONLINE)
+				{
+					for(auto &Source : s_aPresence)
+					{
+						const auto Entry = Source.m_Players.find(ClientData.m_aName);
+						if(Entry != Source.m_Players.end())
+							ClientBadge = Entry->second;
+					}
+					if(ClientBadge != EPlayerClient::UNKNOWN)
+						for(const auto &Other : GameClient()->m_aClients)
+							if(&Other != &ClientData && Other.m_Active && str_comp(Other.m_aName, ClientData.m_aName) == 0)
+							{
+								ClientBadge = EPlayerClient::UNKNOWN;
+								break;
+							}
+				}
+				if(ClientBadge != EPlayerClient::UNKNOWN)
+				{
+					const float Size = FontSize * 0.9f;
+					const bool Fake = ClientBadge == EPlayerClient::FAKE_BEST_CLIENT;
+					const bool Nova = ClientBadge == EPlayerClient::NOVA;
+					const CUIRect Badge = {NameTextOffset, Row.y + (Row.h - Size) / 2, Size, Size};
+					auto &Icon = s_aClientIcons[Nova ? 2 : Fake ? 1 : 0];
+					if(!Icon.IsValid())
+						Icon = Graphics()->LoadTexture(Nova ? "axion/nc_icon.png" : Fake ? "axion/bc_fake_icon.png" : "axion/bc_icon.png", IStorage::TYPE_ALL);
+					if(Icon.IsValid())
+					{
+						Graphics()->TextureSet(Icon);
+						Graphics()->QuadsBegin();
+						Graphics()->SetColor(1, 1, 1, 1);
+						const IGraphics::CQuadItem Quad(Badge.x, Badge.y, Badge.w, Badge.h);
+						Graphics()->QuadsDrawTL(&Quad, 1);
+						Graphics()->QuadsEnd();
+					}
+					NameTextOffset += Badge.w + FontSize * 0.22f;
+				}
 				const bool Muted = pInfo->m_ClientId >= 0 && (GameClient()->m_aClients[pInfo->m_ClientId].m_Foe || GameClient()->m_aClients[pInfo->m_ClientId].m_ChatIgnore);
 				if(Muted)
 				{
@@ -1004,6 +1193,9 @@ void CScoreboard::OnRender()
 {
 	if(Client()->State() != IClient::STATE_ONLINE && Client()->State() != IClient::STATE_DEMOPLAYBACK)
 		return;
+
+	if(Client()->State() == IClient::STATE_ONLINE && IsActive())
+		UpdateScoreboardPresence(Http(), Client()->ServerAddress());
 
 	const CUIRect Screen = *Ui()->Screen();
 	const CNetObj_GameInfo *pGameInfoObj = GameClient()->m_Snap.m_pGameInfoObj;

@@ -48,6 +48,7 @@ public:
 	int DoButton_Toggle(const void *pId, int Checked, const CUIRect *pRect, bool Active, unsigned Flags = BUTTONFLAG_LEFT);
 	int DoButton_Menu(CButtonContainer *pButtonContainer, const char *pText, int Checked, const CUIRect *pRect, unsigned Flags = BUTTONFLAG_LEFT, const char *pImageName = nullptr, int Corners = IGraphics::CORNER_ALL, float Rounding = 5.0f, float FontFactor = 0.0f, ColorRGBA Color = ColorRGBA(1.0f, 1.0f, 1.0f, 0.5f));
 	int DoButton_MenuTab(CButtonContainer *pButtonContainer, const char *pText, int Checked, const CUIRect *pRect, int Corners, SUIAnimator *pAnimator = nullptr, const ColorRGBA *pDefaultColor = nullptr, const ColorRGBA *pActiveColor = nullptr, const ColorRGBA *pHoverColor = nullptr, float EdgeRounding = 10.0f, const CCommunityIcon *pCommunityIcon = nullptr);
+	int DoButton_MenuTabClassic(CButtonContainer *pButtonContainer, const char *pText, int Checked, const CUIRect *pRect, int Corners, SUIAnimator *pAnimator, const ColorRGBA *pDefaultColor, const ColorRGBA *pActiveColor, const ColorRGBA *pHoverColor, float EdgeRounding, const CCommunityIcon *pCommunityIcon);
 
 	int DoButton_CheckBox_Common(const void *pId, const char *pText, const char *pBoxText, const CUIRect *pRect, unsigned Flags);
 	int DoButton_CheckBox(const void *pId, const char *pText, int Checked, const CUIRect *pRect);
@@ -500,6 +501,7 @@ protected:
 	void PopupConfirmDemoReplaceVideo();
 #endif
 	void RenderMenubar(CUIRect Box, IClient::EClientState ClientState);
+	void RenderMenubarClassic(CUIRect Box, IClient::EClientState ClientState);
 	void RenderNews(CUIRect MainView);
 	static void ConchainBackgroundEntities(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData);
 	static void ConchainUpdateMusicState(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData);
@@ -702,6 +704,7 @@ protected:
 
 public:
 	void RenderBackground();
+	void RenderBackgroundClassic();
 
 	CMenus();
 	int Sizeof() const override { return sizeof(*this); }

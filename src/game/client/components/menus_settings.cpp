@@ -66,7 +66,10 @@ void CMenus::RenderSettingsAxion(CUIRect View)
 		Column.HSplitTop(Height, &Box, &Column);
 		Column.HSplitTop(8.0f, nullptr, &Column);
 		s_Scroll.AddRect(Box);
-		AxionUi::Surface(Box, AxionUi::Panel.WithAlpha(0.94f));
+		if(g_Config.m_AxRedesignedMenu)
+			AxionUi::Surface(Box, AxionUi::Panel.WithAlpha(0.94f));
+		else
+			Box.Draw(ColorRGBA(0, 0, 0, 0.25f), IGraphics::CORNER_ALL, 6);
 		Box.Margin(8.0f, &Box);
 		Box.HSplitTop(22.0f, &Row, &Box);
 		Ui()->DoLabel(&Row, pTitle, 15.0f, TEXTALIGN_ML);
@@ -255,24 +258,8 @@ void CMenus::RenderSettingsAxion(CUIRect View)
 		Check(Panel, Localize("Use vote binds for team invitations"), g_Config.m_AxInvitationVoteBinds);
 		Panel = BeginPanel(Right, 66.0f, "HUD");
 		Check(Panel, Localize("Show spectator names"), g_Config.m_AxSpectatorNames);
-		Panel = BeginPanel(Left, 140.0f, Localize("About"));
-		const char *apLabels[] = {Localize("News"), Localize("Website"), Localize("Learn"), Localize("Discord"), Localize("Tutorial")};
-		const char *apLinks[] = {nullptr, "https://ddnet.org/", "https://wiki.ddnet.org/", "https://ddnet.org/discord", nullptr};
-		static CButtonContainer s_aAboutButtons[std::size(apLabels)];
-		for(size_t i = 0; i < std::size(apLabels); ++i)
-		{
-			Panel.HSplitTop(19, &Row, &Panel);
-			Panel.HSplitTop(2, nullptr, &Panel);
-			if(!DoButton_Menu(&s_aAboutButtons[i], apLabels[i], 0, &Row))
-				continue;
-			if(i == 0 && Client()->State() == IClient::STATE_OFFLINE)
-				SetMenuPage(PAGE_NEWS);
-			else if(i == 4)
-				JoinTutorial();
-			else if(apLinks[i])
-				Client()->ViewLink(apLinks[i]);
-		}
-		Panel = BeginPanel(Right, 252.0f, Localize("Animated menu"));
+		Panel = BeginPanel(Right, 278.0f, Localize("Animated menu"));
+		Check(Panel, Localize("Axion menu redesign"), g_Config.m_AxRedesignedMenu);
 		const char *apQuality[] = {Localize("Off"), Localize("Low"), Localize("Medium"), Localize("High"), Localize("Ultra")};
 		char aQuality[96];
 		str_format(aQuality, sizeof(aQuality), "%s: %s", Localize("Background quality"), apQuality[g_Config.m_AxMenuQuality]);
@@ -319,10 +306,15 @@ void CMenus::RenderSettings(CUIRect MainView)
 	}
 	// render background
 	CUIRect Button, TabBar, RestartBar;
-	MainView.VSplitRight(std::clamp(MainView.w * 0.16f, 100.0f, 145.0f), &MainView, &TabBar);
-	TabBar.VSplitLeft(10.0f, nullptr, &TabBar);
+	const bool Redesigned = g_Config.m_AxRedesignedMenu;
+	MainView.VSplitRight(Redesigned ? std::clamp(MainView.w * 0.16f, 100.0f, 145.0f) : 120.0f, &MainView, &TabBar);
+	if(Redesigned)
+		TabBar.VSplitLeft(10.0f, nullptr, &TabBar);
 	const ColorRGBA PanelColor = AxionUi::Background.WithAlpha(0.52f);
-	AxionUi::Surface(MainView, PanelColor, IGraphics::CORNER_ALL, 10);
+	if(Redesigned)
+		AxionUi::Surface(MainView, PanelColor, IGraphics::CORNER_ALL, 10);
+	else
+		MainView.Draw(ms_ColorTabbarActive, IGraphics::CORNER_B, 10);
 	MainView.Margin(20.0f, &MainView);
 
 	const bool NeedRestart = m_NeedRestartGraphics || m_NeedRestartSound || m_NeedRestartUpdate;
@@ -332,7 +324,13 @@ void CMenus::RenderSettings(CUIRect MainView)
 		MainView.HSplitBottom(10.0f, &MainView, nullptr);
 	}
 
-	TabBar.HSplitTop(9.0f, nullptr, &TabBar);
+	if(Redesigned)
+		TabBar.HSplitTop(9.0f, nullptr, &TabBar);
+	else
+	{
+		TabBar.HSplitTop(50, &Button, &TabBar);
+		Button.Draw(ms_ColorTabbarActive, IGraphics::CORNER_BR, 10);
+	}
 	const float CategoryHeight = std::min(28.0f, TabBar.h / SETTINGS_LENGTH);
 
 	const char *apTabs[SETTINGS_LENGTH] = {
@@ -364,10 +362,20 @@ void CMenus::RenderSettings(CUIRect MainView)
 			i = SETTINGS_AXION;
 		else if(Row > SETTINGS_TCLIENT + 1)
 			i = Row - 1;
-		TabBar.HSplitTop(CategoryHeight, &Button, &TabBar);
-		Button.HMargin(2.0f, &Button);
-		if(DoButton_MenuTab(&s_aTabButtons[i], apTabs[i], g_Config.m_UiSettingsPage == i, &Button, IGraphics::CORNER_ALL, i == SETTINGS_AXION ? nullptr : &m_aAnimatorsSettingsTab[i]))
+		if(Redesigned)
+		{
+			TabBar.HSplitTop(CategoryHeight, &Button, &TabBar);
+			Button.HMargin(2, &Button);
+		}
+		else
+		{
+			TabBar.HSplitTop(10, nullptr, &TabBar);
+			TabBar.HSplitTop(26, &Button, &TabBar);
+		}
+		if(DoButton_MenuTab(&s_aTabButtons[i], apTabs[i], g_Config.m_UiSettingsPage == i, &Button, Redesigned ? IGraphics::CORNER_ALL : IGraphics::CORNER_R, i == SETTINGS_AXION ? nullptr : &m_aAnimatorsSettingsTab[i]))
 			g_Config.m_UiSettingsPage = i;
+		if(!Redesigned)
+			continue;
 		CUIRect Icon;
 		Button.VSplitLeft(20, &Icon, nullptr);
 		Icon.Margin(3, &Icon);

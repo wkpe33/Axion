@@ -1,3 +1,4 @@
+#include <engine/shared/config.h>
 #include <game/client/axion_ui.h>
 #include "tooltips.h"
 
@@ -135,7 +136,10 @@ void CTooltips::OnRender()
 			Rect.y = std::clamp(Ui()->MouseY() - Rect.h / 2.0f, Margin, pScreen->h - Rect.h - Margin);
 		}
 
-		AxionUi::Surface(Rect, AxionUi::Panel.WithAlpha(AlphaFactor), IGraphics::CORNER_ALL, Padding);
+		if(g_Config.m_AxRedesignedMenu)
+			AxionUi::Surface(Rect, AxionUi::Panel.WithAlpha(AlphaFactor), IGraphics::CORNER_ALL, Padding);
+		else
+			Rect.Draw(ColorRGBA(0.2f, 0.2f, 0.2f, 0.8f * AlphaFactor), IGraphics::CORNER_ALL, Padding);
 		Rect.Margin(Padding, &Rect);
 
 		CTextCursor Cursor;

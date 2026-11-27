@@ -10,6 +10,7 @@ class CMenusStart : public CComponentInterfaces
 {
 public:
 	void RenderStartMenu(CUIRect MainView);
+	void RenderStartMenuClassic(CUIRect MainView);
 
 private:
 	bool CheckHotKey(int Key) const;

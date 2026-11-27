@@ -2186,7 +2186,10 @@ void CMenus::RenderServerbrowser(CUIRect MainView)
 	// clang-format on
 
 	CUIRect ServerList, StatusBox, ToolBox, TabBar;
-	AxionUi::Surface(MainView, ms_ColorTabbarActive, IGraphics::CORNER_ALL, 8);
+	if(g_Config.m_AxRedesignedMenu)
+		AxionUi::Surface(MainView, ms_ColorTabbarActive, IGraphics::CORNER_ALL, 8);
+	else
+		MainView.Draw(ms_ColorTabbarActive, IGraphics::CORNER_B, 10.0f);
 	MainView.Margin(10.0f, &MainView);
 	MainView.VSplitRight(205.0f, &ServerList, &ToolBox);
 	ServerList.VSplitRight(5.0f, &ServerList, nullptr);

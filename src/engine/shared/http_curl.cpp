@@ -112,6 +112,47 @@ bool CHttpRequestCurl::ConfigureHandle(CURL *pHandle)
 		curl_easy_setopt(pHandle, CURLOPT_FAILONERROR, 1L);
 	}
 	curl_easy_setopt(pHandle, CURLOPT_URL, m_aUrl);
+#if LIBCURL_VERSION_NUM >= 0x074d00
+	// BestClient publishes its presence list with a self-signed certificate.
+	// Trust this certificate only for the exact read-only presence endpoint.
+	if(str_comp(m_aUrl, "https://150.241.70.188:8779/users.json") == 0)
+	{
+		static const char aBestClientCa[] = R"PEM(-----BEGIN CERTIFICATE-----
+MIIFJDCCAwygAwIBAgIUDIQypHi5dY9BpJSB8kOkjIW7rnkwDQYJKoZIhvcNAQEL
+BQAwGTEXMBUGA1UEAwwOMTUwLjI0MS43MC4xODgwHhcNMjYxMDIwMTQ0NDI4WhcN
+MzYxMDE3MTQ0NDI4WjAZMRcwFQYDVQQDDA4xNTAuMjQxLjcwLjE4ODCCAiIwDQYJ
+KoZIhvcNAQEBBQADggIPADCCAgoCggIBAM9vg24fKTLqcBu5ejC8onRSkK3MYUCt
+DFSn3VGK5Jk61O82hy9yBYrV+KueSyHzYCLbzOxbQMZKONUdKicZdRYE8GbIhnXX
+U4Rhrnxrcpn5Azyrs4hrwpo2GWHYNoU5mHWqaVQcIiRj2bQgtmT+uxSVRWSmwZ0H
+54uJSkc4ai1HXYZAm2FZTencT4pyYTr/o93Vg7db35oj1yfYCd+JSI0W4GP9yVbO
+3BgJWLCiJ3m9lIdNjbxOdYWXPK9kFO+xoKS5u7Ztc/Xn6cq7ZAST0mFTY8QO0pKT
+aS7xaaNRMIGi8XdAP9hFPDZ4Wb8sGqAcbz+bDWBYYYW/4c8tDj2wsfLDFMn7vxXI
+NOFhyMEVnOM3vD1tnUwBhnx7+rMIhN55VI35RtAX8HyilQhUujx/a+ze+M5rltBF
+S6OalOa2vwdTQ2Pq2ircmllWCBNSYRkQ1lmBEMZU5EhDp+p5QlnQQqfaFYCN8n9k
+qMSCsEICNJyB4x8KspSyC8+ITTz+nyI8Y0m5qCcXS8H5Fa2zAx7VXhBx5wdICaud
+YMAD0QPVVIigEahaf7s06ozOD5VN/8fYbzeDYgD59fhtlaXka3F/mZIfW5honMt7
+/mjY4Sm9y1IcXKwPHu1eVlHvBzmWBiq+x28AO62HYYtivhA5FsF7+0xwfkqBJz8y
+d4k5f0UwHV0bAgMBAAGjZDBiMB0GA1UdDgQWBBQ0Q6cJ0iuiUTHQ0Adoz9fxOT6L
+aDAfBgNVHSMEGDAWgBQ0Q6cJ0iuiUTHQ0Adoz9fxOT6LaDAPBgNVHRMBAf8EBTAD
+AQH/MA8GA1UdEQQIMAaHBJbxRrwwDQYJKoZIhvcNAQELBQADggIBAM2HyodvTKpc
+9oTXbGeh32An3zZQtlJeOUjV4qyy1FyvxTVdr1AF3zhkO/t+zOWgrRncldqOQp6V
+634YCaDxqq0iqewodBVV63AoC4l5hxxW8dhIpfB3JVTQrTn4ady2OsUVS/8GvV5F
+bunqXpr3dMYSSakFX/wbEYWAqXBKVw9+SEyXrAKfE012TMbAdUiV9NKySFd90UeJ
+lMkXtusbEsyyEGTH/2SaqzDA+ybd8//X49aWf1OMw46RrU1q0LgnoXOCQCO5rzWY
+eGKxD74YrH4K2sMPZUgYlgKjmtLbn9ofLkx+NSiy0rDJB2qoOj6dF3b5m/elaHAD
+VnDp59iCzio7Qu9PLfaWl2k+9uhJkWvszIj2F/SpMYxGgq0rut5sjmExHEr7jPku
+VYz1W2dWgXNG3mKD5eVPQvNvv8nVR1Orm1ZtR4Su/ijQrFWcZkVbFWcEQ2+Dko2v
+GMB9g9BxkvVZ015jrat7BJ3T2jfkOnIlabml/3987OXKi4WGlvPYPTBKXmyzk52k
+FVpnwxmgbxQOZ+R2kkb2Uh9M7F+CLXbfmADLwhYzzufZsXkXr5wQocz2q1MsjOPX
+wp+kS8/0njYJ0Wqpu4dpnPKkJ0PjuweI6plnBuBYLfA7AhjBGw1/rV8tbSryTbqk
+JMRF32qui2SI+JV7fIUf3FAHP03CB7Q6
+-----END CERTIFICATE-----
+)PEM";
+		curl_blob BestClientCa{const_cast<char *>(aBestClientCa), sizeof(aBestClientCa) - 1, CURL_BLOB_COPY};
+		curl_easy_setopt(pHandle, CURLOPT_CAINFO_BLOB, &BestClientCa);
+		curl_easy_setopt(pHandle, CURLOPT_FOLLOWLOCATION, 0L);
+	}
+#endif
 	curl_easy_setopt(pHandle, CURLOPT_NOSIGNAL, 1L);
 	curl_easy_setopt(pHandle, CURLOPT_USERAGENT, USER_AGENT_STRING);
 	curl_easy_setopt(pHandle, CURLOPT_ACCEPT_ENCODING, ""); // Use any compression algorithm supported by libcurl.

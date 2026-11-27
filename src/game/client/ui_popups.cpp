@@ -73,9 +73,9 @@ void CUi::RenderPopupMenus()
 		}
 
 		CUIRect PopupRect = PopupMenu.m_Rect;
-		PopupRect.Draw(PopupMenu.m_Props.m_BorderColor, PopupMenu.m_Props.m_Corners, 3.0f);
+		PopupRect.Draw(!g_Config.m_AxRedesignedMenu && PopupMenu.m_Props.m_BorderColor == ColorRGBA(0.188f, 0.188f, 0.188f, 0.95f) ? ColorRGBA(0.5f, 0.5f, 0.5f, 0.75f) : PopupMenu.m_Props.m_BorderColor, PopupMenu.m_Props.m_Corners, 3.0f);
 		PopupRect.Margin(SPopupMenu::POPUP_BORDER, &PopupRect);
-		PopupRect.Draw(PopupMenu.m_Props.m_BackgroundColor, PopupMenu.m_Props.m_Corners, 3.0f);
+		PopupRect.Draw(!g_Config.m_AxRedesignedMenu && PopupMenu.m_Props.m_BackgroundColor == ColorRGBA(0.082f, 0.082f, 0.082f, 0.97f) ? ColorRGBA(0, 0, 0, 0.75f) : PopupMenu.m_Props.m_BackgroundColor, PopupMenu.m_Props.m_Corners, 3.0f);
 		PopupRect.Margin(SPopupMenu::POPUP_MARGIN, &PopupRect);
 
 		// The popup render function can open/close popups, which may resize the vector and thus

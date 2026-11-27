@@ -2863,3 +2863,6 @@ Checking…
 
 Could not check for updates
 == Не удалось проверить обновления
+
+Axion menu redesign
+== Новое оформление меню Axion

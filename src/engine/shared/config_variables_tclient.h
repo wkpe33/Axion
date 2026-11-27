@@ -307,3 +307,5 @@ MACRO_CONFIG_INT(AxMenuBrightness, ax_menu_brightness, 70, 0, 100, CFGFLAG_CLIEN
 MACRO_CONFIG_INT(AxMenuParallax, ax_menu_parallax, 35, 0, 100, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Menu cursor parallax")
 MACRO_CONFIG_INT(AxStartupAnimation, ax_startup_animation, 1, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Animate client startup")
 MACRO_CONFIG_INT(AxUiAnimations, ax_ui_animations, 1, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Animate menu controls")
+
+MACRO_CONFIG_INT(AxRedesignedMenu, ax_redesigned_menu, 1, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Use redesigned Axion menus")

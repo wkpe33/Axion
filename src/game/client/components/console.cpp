@@ -1204,8 +1204,12 @@ void CGameConsole::OnRender()
 
 	const ColorRGBA ShadowColor = ColorRGBA(0.0f, 0.0f, 0.0f, 0.4f);
 	const ColorRGBA TransparentColor = ColorRGBA(0.0f, 0.0f, 0.0f, 0.0f);
-	const ColorRGBA aBackgroundColors[NUM_CONSOLETYPES] = {AxionUi::Background.WithAlpha(0.96f), AxionUi::Panel.WithAlpha(0.96f)};
-	const ColorRGBA aBorderColors[NUM_CONSOLETYPES] = {AxionUi::Border, AxionUi::Muted};
+	static constexpr ColorRGBA aBackgroundClassicColors[NUM_CONSOLETYPES] = {ColorRGBA(0.2f, 0.2f, 0.2f, 0.9f), ColorRGBA(0.4f, 0.2f, 0.2f, 0.9f)};
+	const ColorRGBA aBackgroundAxionColors[NUM_CONSOLETYPES] = {AxionUi::Background.WithAlpha(0.96f), AxionUi::Panel.WithAlpha(0.96f)};
+	const auto &aBackgroundColors = g_Config.m_AxRedesignedMenu ? aBackgroundAxionColors : aBackgroundClassicColors;
+	static constexpr ColorRGBA aBorderClassicColors[NUM_CONSOLETYPES] = {ColorRGBA(0.1f, 0.1f, 0.1f, 0.9f), ColorRGBA(0.2f, 0.1f, 0.1f, 0.9f)};
+	const ColorRGBA aBorderAxionColors[NUM_CONSOLETYPES] = {AxionUi::Border, AxionUi::Muted};
+	const auto &aBorderColors = g_Config.m_AxRedesignedMenu ? aBorderAxionColors : aBorderClassicColors;
 
 	Ui()->MapScreen();
 

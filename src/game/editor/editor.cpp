@@ -3770,7 +3770,7 @@ void CEditor::Render()
 	//	a little hack for now
 	if(m_Mode == MODE_LAYERS)
 		MapView()->Render(View);
-	if(m_GuiActive)
+	if(m_GuiActive && g_Config.m_AxRedesignedMenu)
 	{
 		AxionUi::Surface(MenuBar, AxionUi::Panel, IGraphics::CORNER_NONE);
 		AxionUi::Surface(ToolBar, AxionUi::Panel, IGraphics::CORNER_NONE);
